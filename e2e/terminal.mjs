@@ -68,7 +68,7 @@ try {
     page.on("request", (request) => {
       if (new URL(request.url()).pathname === "/api/terminal" && request.method() === "POST") created.add(request.postDataJSON().id);
     });
-    const ready = () => page.locator(".terminal-panel:visible .is-ready").waitFor();
+    const ready = () => page.locator('.terminal-panel[data-terminal-status="ready"]:visible').waitFor();
     const text = () => page.locator(".terminal-panel:visible .xterm-rows").innerText();
     // xterm replaces its character spans asynchronously after a font change/refit.
     const expectFontWeight = (weight, bold = false) => page.waitForFunction(({ weight, bold }) => {
@@ -93,10 +93,12 @@ try {
     // session rows in its sessions: one above the other on a desktop, tabs on a phone.
     const showTab = (name) => (name === "Files" ? showSidebarFiles(page) : showSidebarSessions(page));
     const filesPanel = page.locator("#session-sidebar-panel-files");
-    const showPanel = () => page.getByRole("button", { name: "Show file panel", exact: true }).click();
+    const dock = page.locator("#terminal-dock");
+    const showPanel = () => page.getByRole("button", { name: "Show terminal panel", exact: true }).click();
     const hidePanel = async () => {
-      const button = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true, includeHidden: true });
-      if (await button.getAttribute("aria-expanded") === "true") await button.click();
+      if (await dock.isVisible()) {
+        await dock.getByRole("button", { name: "Hide terminal panel", exact: true }).click();
+      }
     };
     try {
       await page.goto(`${base}/?session=terminal-a1`);
@@ -105,6 +107,10 @@ try {
       await showTab("Files");
       await page.getByRole("button", { name: "Open workspace terminal", exact: true }).click();
       await ready();
+      await dock.waitFor();
+      assert.equal(await page.locator("#file-panel .terminal-panel").count(), 0);
+      assert.equal(await dock.locator(".terminal-panel header").count(), 0);
+      assert.equal(await dock.getByRole("tab", { name: "Terminal: workspace-a", exact: true }).getByTitle(workspace, { exact: true }).count(), 1);
       await run("export PR695_TOKEN=alive; printf '\\nTOKEN:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput("TOKEN:alive:[0-9]+");
       const pid = (await text()).match(/TOKEN:alive:(\d+)/)[1];
@@ -144,7 +150,9 @@ try {
       await page.getByText("File viewer fixture", { exact: true }).waitFor();
       assert.equal(await page.locator(".terminal-panel").count(), 1);
       assert.equal(await page.locator(".terminal-panel").isVisible(), false);
-      await page.getByRole("tab", { name: "Terminal: workspace-a", exact: true }).click();
+      assert.equal(await page.locator("#file-panel").getByRole("tab", { name: "Terminal: workspace-a", exact: true }).count(), 0);
+      await page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true }).click();
+      await showPanel();
       await ready();
       await hidePanel();
       await showSidebar();
@@ -156,28 +164,41 @@ try {
 
       // The terminal's own theme swaps xterm's palette in place and survives a reload.
       const terminalBackground = () => page.locator(".terminal-panel:visible .xterm-viewport").evaluate((el) => getComputedStyle(el).backgroundColor);
+      const expectBackground = async (color) => {
+        // The theme attribute changes before xterm applies its palette.
+        await page.waitForFunction((expected) => {
+          const viewport = [...document.querySelectorAll(".terminal-panel .xterm-viewport")].find((element) => element.offsetWidth);
+          return viewport && getComputedStyle(viewport).backgroundColor === expected;
+        }, color);
+        assert.equal(await terminalBackground(), color);
+      };
       const appTheme = await page.evaluate(() => document.documentElement.dataset.theme);
       await page.getByRole("button", { name: "Switch terminal to light theme", exact: true }).click();
       await page.locator('.terminal-panel:visible[data-terminal-theme="light"]').waitFor();
-      assert.equal(await terminalBackground(), "rgb(251, 251, 252)");
+      await expectBackground("rgb(251, 251, 252)");
       assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), appTheme);
       await run("printf '\\nTHEME:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`THEME:alive:${pid}`);
 
+      await page.getByRole("button", { name: "Switch terminal to Zenburn theme", exact: true }).click();
+      await page.locator('.terminal-panel:visible[data-terminal-theme="zenburn"]').waitFor();
+      await expectBackground("rgb(63, 63, 63)");
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), appTheme);
+
       await page.reload();
       await ready();
       await expectFontWeight(600);
-      await page.locator('.terminal-panel:visible[data-terminal-theme="light"]').waitFor();
-      assert.equal(await terminalBackground(), "rgb(251, 251, 252)");
+      await page.locator('.terminal-panel:visible[data-terminal-theme="zenburn"]').waitFor();
+      await expectBackground("rgb(63, 63, 63)");
       await page.getByRole("button", { name: "Switch terminal to dark theme", exact: true }).click();
-      assert.equal(await terminalBackground(), "rgb(17, 19, 24)");
+      await expectBackground("rgb(17, 19, 24)");
       assert.equal(await page.evaluate(() => localStorage.getItem("pi-web:terminal-theme")), "dark");
       await run("printf '\\nREFRESH:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
       await waitOutput(`REFRESH:alive:${pid}`);
       assert.equal(created.size, 1, "refresh must reconnect, not create");
 
       await context.setOffline(true);
-      await page.locator(".terminal-panel:visible .is-connecting").waitFor();
+      await page.locator('.terminal-panel[data-terminal-status="connecting"]:visible').waitFor();
       await context.setOffline(false);
       await ready();
       await run("printf '\\nRECONNECT:%s:%s\\n' \"$PR695_TOKEN\" \"$$\"");
@@ -218,6 +239,39 @@ try {
       });
       assert.ok(dimensions.screenWidth > 100 && dimensions.screenHeight > 100 && dimensions.fits, JSON.stringify(dimensions));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+
+      await run("printf '\\nPTY_SIZE:'; stty size");
+      await waitOutput("PTY_SIZE:[0-9]+ [0-9]+");
+      const [, rows, cols] = (await text()).match(/PTY_SIZE:(\d+) (\d+)/);
+      await run("vim -Nu NONE -n -i NONE -c 'set laststatus=2 statusline=VIM_LEFT%=VIM_RIGHT' -c 'echo \"VIM_BOTTOM\"'");
+      await page.waitForFunction(() => {
+        const lines = document.querySelector(".terminal-panel .xterm-rows");
+        return lines?.lastElementChild?.textContent.includes("VIM_BOTTOM");
+      });
+      const vimGrid = await page.locator(".terminal-xterm-host:visible").evaluate((host) => {
+        const screen = host.querySelector(".xterm-screen").getBoundingClientRect();
+        const lines = host.querySelector(".xterm-rows");
+        const walker = document.createTreeWalker(lines, NodeFilter.SHOW_TEXT);
+        let right;
+        let node;
+        while ((node = walker.nextNode())) {
+          const start = node.textContent.indexOf("VIM_RIGHT");
+          if (start < 0) { continue; }
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, start + "VIM_RIGHT".length);
+          right = range.getBoundingClientRect().right;
+          break;
+        }
+        return { right, screenRight: screen.right, rows: lines.children.length, lastRow: lines.lastElementChild.textContent };
+      });
+      const CELL_EDGE_TOLERANCE = 2;
+      assert.equal(vimGrid.rows, Number(rows), "Vim and xterm use the PTY row count");
+      assert.ok(Math.abs(vimGrid.right - vimGrid.screenRight) < CELL_EDGE_TOLERANCE,
+        `Vim's final column stays inside the grid (${cols} columns): ${JSON.stringify(vimGrid)}`);
+      assert.match(vimGrid.lastRow, /VIM_BOTTOM/, "Vim uses the last terminal row");
+      await page.keyboard.type(":qa!");
+      await page.keyboard.press("Enter");
 
       await page.getByRole("button", { name: "Restart terminal", exact: true }).click();
       await page.waitForFunction((oldId) => {
@@ -269,7 +323,7 @@ try {
       assert.deepEqual(workspaceTabs.map((tab) => tab.cwd).sort(), [workspace, otherWorkspace].sort());
       const otherId = workspaceTabs.find((tab) => tab.cwd === otherWorkspace).id;
       assert.equal((await (await fetch(`${base}/api/terminal/${otherId}`)).json()).cwd, otherWorkspace);
-      await page.getByRole("tab", { name: "Terminal: workspace-a", exact: true }).click();
+      await dock.getByRole("tab", { name: "Terminal: workspace-a", exact: true }).click();
       await run("printf '\\nWORKSPACE:%s\\n' \"$PR695_WORKSPACE\"");
       await waitOutput("WORKSPACE:retained");
       await page.screenshot({ path: join(artifacts, `${viewport.width}-workspaces.png`), fullPage: true });

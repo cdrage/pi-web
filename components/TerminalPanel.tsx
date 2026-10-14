@@ -5,7 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { terminalFontSize, useChatAppearance } from "@/hooks/useChatAppearance";
 import { useI18n } from "@/hooks/useI18n";
-import { setTerminalTheme, useTerminalTheme } from "@/hooks/useTerminalTheme";
+import { useTerminalTheme } from "@/hooks/useTerminalTheme";
 import { subscribeFontPreferences } from "@/hooks/useFontPreferences";
 import { readFontWeight } from "@/lib/font-preferences";
 import { createTerminalWriter, terminalRequest } from "@/lib/terminal-client";
@@ -23,15 +23,16 @@ import { TERMINAL_XTERM_THEMES } from "@/lib/terminal-theme";
 import { TerminalExtraKeys, useTerminalExtraKeysVisible } from "./TerminalExtraKeys";
 import type { TerminalTab } from "./terminal-tab-state";
 
+const TERMINAL_SCROLLBAR_WIDTH = 8;
+
 interface Props {
   tab: TerminalTab;
   active: boolean;
-  onRestart: () => void;
   onClosed: () => void;
   onCloseError: () => void;
 }
 
-export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }: Props) {
+export function TerminalPanel({ tab, active, onClosed, onCloseError }: Props) {
   const { t } = useI18n();
   const { id, cwd, restored } = tab;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,8 +101,10 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
       cursorBlink: true,
       ...readTerminalFont(),
       fontSize: fontSizeRef.current,
-      lineHeight: 1.25,
+      lineHeight: 1,
       scrollback: 8000,
+      // FitAddon reserves this width even when the scrollbar is hidden.
+      overviewRuler: { width: TERMINAL_SCROLLBAR_WIDTH },
       screenReaderMode: true,
       disableStdin: true,
       theme: TERMINAL_XTERM_THEMES[themeRef.current],
@@ -109,7 +112,6 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     terminalRef.current = terminal;
     const fit = new FitAddon();
     terminal.loadAddon(fit);
-    terminal.open(container);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown") return true;
       const key = event.key.toLowerCase();
@@ -140,9 +142,19 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     refitRef.current = fitAndResize;
     const resizeObserver = new ResizeObserver(fitAndResize);
     resizeObserver.observe(container);
-    const updateFont = () => {
-      if (disposed) return;
+    let fontRevision = 0;
+    const loadFont = async () => {
       const font = readTerminalFont();
+      // xterm caches cell metrics. Load the font before it measures the grid.
+      await document.fonts.load(`${font.fontWeight} ${fontSizeRef.current}px ${font.fontFamily}`, "W").catch(() => []);
+      return font;
+    };
+    const updateFont = async () => {
+      const revision = ++fontRevision;
+      const font = await loadFont();
+      if (disposed || revision !== fontRevision) {
+        return;
+      }
       terminal.options.fontFamily = font.fontFamily;
       terminal.options.fontWeight = font.fontWeight;
       fitAndResize();
@@ -190,6 +202,11 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     };
 
     startRef.current = (async () => {
+      await loadFont();
+      if (disposed) {
+        return;
+      }
+      terminal.open(container);
       fitAndResize();
       if (restored || reconnectKey > 0) {
         // Restoring a tab must never silently launch a replacement shell.
@@ -271,44 +288,14 @@ export function TerminalPanel({ tab, active, onRestart, onClosed, onCloseError }
     return () => { cancelled = true; };
   }, [id, tab.closing]);
 
-  const nextTheme = theme === "dark" ? "light" : "dark";
-  const themeLabel = nextTheme === "light" ? "terminal.lightTheme" : "terminal.darkTheme";
-
   return (
-    <section className="terminal-panel" data-terminal-theme={theme} aria-label={t("terminal.title")}>
-      <header className="terminal-panel-header">
-        <div className="terminal-panel-path">
-          <span className={`terminal-status-dot is-${status}`} title={t(`terminal.${status}`)} />
-          <span title={cwd}>{cwd}</span>
-        </div>
-        <div className="terminal-panel-actions">
-          {status === "error" && (
-            <button type="button" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)} title={t("terminal.reconnect")} aria-label={t("terminal.reconnect")}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2" />
-              </svg>
-            </button>
-          )}
-          <button type="button" onClick={() => setTerminalTheme(nextTheme)} title={t(themeLabel)} aria-label={t(themeLabel)}>
-            {nextTheme === "light" ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-              </svg>
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
-          </button>
-          <button type="button" onClick={onRestart} disabled={Boolean(tab.closing)} title={t("terminal.restart")} aria-label={t("terminal.restart")}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20 11a8 8 0 1 0-2.34 5.66" /><polyline points="20 4 20 11 13 11" />
-            </svg>
-          </button>
-        </div>
-      </header>
+    <section className="terminal-panel" data-terminal-theme={theme} aria-label={t("terminal.title")} data-terminal-status={status} aria-busy={status === "connecting"}>
       <div>
-        {error && <div className="terminal-panel-error" role="alert">{error}</div>}
+        {status === "connecting" && <div className="terminal-panel-exit" role="status">{t("terminal.connecting")}</div>}
+        {(error || status === "error") && <div className="terminal-panel-error" role="alert">
+          <span>{error ?? t("terminal.error")}</span>
+          {status === "error" && <button type="button" onClick={() => setReconnectKey((key) => key + 1)} disabled={Boolean(tab.closing)}>{t("terminal.reconnect")}</button>}
+        </div>}
         {status === "exited" && <div className="terminal-panel-exit" role="status">{exitCode === null ? t("terminal.exited") : t("terminal.exitCode", { code: exitCode })}</div>}
       </div>
       <div className="terminal-xterm"><div ref={containerRef} className="terminal-xterm-host" /></div>

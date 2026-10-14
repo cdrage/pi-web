@@ -1,9 +1,21 @@
 # Workspace Terminals
 
-The Explorer terminal action opens or focuses a terminal for its selected cwd
-in the right panel's existing tab bar. Each terminal tab keeps the cwd it was
-created with. Files still mount only their active viewer; terminal panels stay
-mounted behind inactive tabs, hidden panels, and session or project switches.
+The Explorer terminal action opens a terminal below the chat for its selected
+cwd. The bottom panel has separate tabs and a height control. Its saved height
+survives a page reload. File tabs stay in the right panel.
+
+Each terminal tab retains its original cwd. A hidden panel, an inactive tab,
+and a project switch preserve the shell, output, and SSE connection.
+The toolbar's terminal button restores the hidden panel.
+The tab tooltip shows the full cwd. Restart shares the tab row.
+The terminal body has no permanent header. Connection and exit notices appear above the output.
+
+## Appearance
+
+The terminal has separate dark, light, and Zenburn palettes. The dock's theme
+button cycles through them. Its choice persists across reloads and browser tabs.
+Palette changes preserve the shell, output, and event stream.
+Pi Web uses a browser terminal and does not read Ghostty's configuration.
 
 ## Lifecycle
 
@@ -16,8 +28,7 @@ mounted behind inactive tabs, hidden panels, and session or project switches.
 - A new PTY gets a 120-second connection lease. Subscribing cancels expiry;
   the last subscriber leaving starts a new 120-second grace period. This also
   collects creations that never establish their initial connection.
-- Hiding a panel, switching tabs, and unmounting a component only disconnect
-  clients. Explicitly terminating a tab waits for creation and in-flight input
+- A component unmount disconnects its client. Explicit termination waits for creation and in-flight input
   before deleting the PTY. Restart waits for termination before creating a new
   ID. Failed termination leaves the tab available to retry.
 - A shell exit closes the SSE stream and retains its output and exit code in
@@ -62,3 +73,7 @@ checks. `npm run test:terminal` starts an isolated development server and runs
 desktop/mobile browser checks using generated session fixtures. Install the
 Playwright Chromium browser first with `npx playwright install chromium`.
 The browser check prints the temporary location of its screenshots and log.
+
+`npm run test:terminal-layout` uses an
+existing development server and mocked APIs. It tests panel placement, resize,
+restore, shell identity, and theme changes on desktop and mobile.

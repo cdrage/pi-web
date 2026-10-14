@@ -43,6 +43,8 @@
     "start:lan": "next start -H 0.0.0.0 -p 30141",
     "lint": "eslint .",
     "test:terminal": "node e2e/terminal.mjs",
+    "test:terminal-layout": "node e2e/terminal-layout.mjs",
+    "test:themes": "node e2e/themes.mjs",
     "test:review": "node e2e/code-review.mjs",
     "test:e2e": "node e2e/run.mjs",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",

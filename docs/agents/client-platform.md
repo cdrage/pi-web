@@ -9,15 +9,21 @@
 - The composer's queued steer/follow-up rows scroll in their own box, `min(180px, 25%)` of `--app-viewport-height` (plain `dvh` misses a keyboard that shrinks only the visual viewport), with the count and Recall above it (#1428). The composer sits outside the scrolling transcript, so an unbounded list pushed the input and its buttons below the screen with no way to scroll them back. The composer's wrapper, fieldset and inner column are flex columns that may shrink (`min-height: 0`), so in a window too short even for that cap the queue box gives way down to its header and one row (`minHeight: 72`) before the input and buttons leave the screen; the 200px draft cap is unchanged.
 
 ## Terminal extra keys (`components/TerminalExtraKeys.tsx`, `lib/terminal-extra-keys.ts`)
+- `TerminalPanel` uses an automatic notice row, then xterm, then optional extra keys. Restart shares the dock's tab bar. The healthy terminal body has no header.
 - A touch device held in portrait gets Termux's two key rows under the terminal (`ESC / - HOME ↑ END PGUP`, `TAB CTRL ALT ← ↓ → PGDN`). Portrait comes from `screen.orientation` (then `window.orientation`), never from the viewport: the soft keyboard makes the viewport wider than tall, and the keys must stay while it is open. Left and right are Noto Sans Mono's `↓` and `↑` rotated 90deg: its latin subset has `↑`/`↓` but no `←`/`→`, which would fall back to a heavier system font.
 - The keys are the panel's last grid row, so xterm's `ResizeObserver` refits above them instead of being covered. Buttons call `preventDefault()` on pointer and mouse down so the hidden xterm textarea keeps focus and the keyboard stays up.
 - Keys go through `terminal.input(sequence, true)`, the same `onData` path (and the same connected / disableStdin checks) as typing. Arrows and Home/End follow xterm's application cursor mode; CTRL and ALT are one-shot and also modify the next character typed on the soft keyboard (`applyTerminalModifiers` in `onData`).
 
 ## Terminal theme (`lib/terminal-theme.ts`, `hooks/useTerminalTheme.ts`)
-- The terminal header's sun/moon button switches the terminal alone between dark (the default) and light, apart from the app theme. The choice is per browser in `localStorage` (`pi-web:terminal-theme`), shared by every open terminal and synced across tabs by the `storage` event.
-- A switch sets `terminal.options.theme` on the live xterm, never recreating it, so the shell and its SSE stream stay. The panel's chrome reads `--terminal-*` variables that `.terminal-panel[data-terminal-theme="light"]` overrides; `--terminal-bg` must match each xterm palette's `background`.
+- The dock's theme button cycles between dark (the default), light, and Zenburn, independently of the app theme.
+  Every terminal shares the browser's `pi-web:terminal-theme` preference. The `storage` event updates other tabs.
+- A switch sets `terminal.options.theme` on the live xterm. The shell and its event stream remain active.
+- The panel's `data-terminal-theme` selects its chrome colors. Each `--terminal-bg` value must match its xterm palette.
 
 ## Terminal font size (`terminalFontSize()` in `hooks/useChatAppearance.ts`)
+- The xterm container has no padding. Its scrollbar reserves 8px. The grid fills the remaining space with whole cells and rows.
+- `TerminalPanel` loads the selected font before xterm opens or changes font family. Otherwise, xterm keeps fallback metrics after the web font arrives.
+- Font changes use a revision counter, so a slow font load cannot replace a newer selection. The shell and stream stay active.
 - The terminal has no size setting of its own (#1277): it follows General's chat font size the way code blocks do, the same step from its own 13px at the 14px default (`terminalFontSize()`: chat − 1, so 11–23px). A slider move sets `terminal.options.fontSize` on the live xterm and refits through the panel's `fitAndResize`; the refit's `onResize` sends the new cols/rows to the PTY, the same path as a window resize.
 
 ## Sidebar breakpoint (`components/AppShell.tsx`)

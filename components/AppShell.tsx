@@ -18,7 +18,8 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
 import { SubagentViewer } from "./SubagentViewer";
-import { TerminalPanel } from "./TerminalPanel";
+import { TerminalDock } from "./TerminalDock";
+import { TerminalIcon } from "./SidebarIcons";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
@@ -562,19 +563,14 @@ export function AppShell() {
   const [fileWorkspaceGeneration, setFileWorkspaceGeneration] = useState(0);
   const fileWorkspaceGenerationRef = useRef(0);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalsRestored, setTerminalsRestored] = useState(false);
   // Subagent work tabs are session-scoped and transient: no persistence, and
   // they are dropped when the project changes (they belong to its sessions).
   const [agentTabs, setAgentTabs] = useState<{ sessionId: string; label: string }[]>([]);
   const panelTabs: Tab[] = [
     ...fileTabs,
-    ...terminalTabs.map((tab) => ({
-      id: tab.id,
-      label: getFileName(tab.cwd) || tab.cwd,
-      filePath: tab.cwd,
-      kind: "terminal" as const,
-      closing: Boolean(tab.closing),
-    })),
     ...agentTabs.map((tab) => ({
       id: `agent:${tab.sessionId}`,
       label: tab.label,
@@ -587,10 +583,8 @@ export function AppShell() {
     try {
       const saved = restoreTerminalTabs(window.sessionStorage.getItem(TERMINAL_TABS_KEY));
       setTerminalTabs(saved.tabs);
-      if (saved.activeId) {
-        setActiveFileTabId(saved.activeId);
-        setRightPanelOpen(saved.open);
-      }
+      setActiveTerminalTabId(saved.activeId ?? saved.tabs.at(-1)?.id ?? null);
+      setTerminalOpen(Boolean(saved.activeId) && saved.open);
     } catch { /* storage is optional */ }
     setTerminalsRestored(true);
   }, []);
@@ -600,11 +594,11 @@ export function AppShell() {
     try {
       window.sessionStorage.setItem(TERMINAL_TABS_KEY, JSON.stringify({
         tabs: terminalTabs.map(({ id, cwd }) => ({ id, cwd })),
-        activeId: activeFileTabId,
-        open: rightPanelOpen,
+        activeId: activeTerminalTabId,
+        open: terminalOpen,
       }));
     } catch { /* storage is optional */ }
-  }, [terminalTabs, activeFileTabId, rightPanelOpen, terminalsRestored]);
+  }, [terminalTabs, activeTerminalTabId, terminalOpen, terminalsRestored]);
 
   const handleFileViewerStateChange = useCallback((
     generation: number,
@@ -632,11 +626,8 @@ export function AppShell() {
     setFileTabs(next.tabs);
     // Subagent tabs belong to the previous project's sessions: dropped, not parked.
     setAgentTabs([]);
-    // Terminal tabs span workspaces and keep control of the panel while active.
-    if (!activeFileTabId || activeFileId || activeFileTabId.startsWith("agent:")) {
-      setActiveFileTabId(next.activeTabId);
-      setRightPanelOpen(next.open);
-    }
+    setActiveFileTabId(next.activeTabId);
+    setRightPanelOpen(next.open);
   }, [activeFileTabId, fileTabs, rightPanelOpen]);
 
   // Same @mention format as the chat input's @ autocomplete, so the agent's
@@ -1240,10 +1231,15 @@ export function AppShell() {
   const handleOpenTerminal = useCallback((cwd: string) => {
     const existing = terminalTabs.find((tab) => tab.cwd === cwd);
     const tab = existing ?? newTerminalTab(cwd);
-    if (!existing) setTerminalTabs((tabs) => [...tabs, tab]);
-    setActiveFileTabId(tab.id);
-    setRightPanelOpen(true);
-    if (isMobile) setSidebarOpen(false);
+    if (!existing) {
+      setTerminalTabs((tabs) => [...tabs, tab]);
+    }
+    setActiveTerminalTabId(tab.id);
+    setTerminalOpen(true);
+    if (isMobile) {
+      setRightPanelOpen(false);
+      setSidebarOpen(false);
+    }
   }, [terminalTabs, isMobile]);
 
   // Subagent work opens in a right-panel tab instead of hijacking the main chat.
@@ -1275,36 +1271,34 @@ export function AppShell() {
     const replacement = tab.closing === "restart" ? newTerminalTab(tab.cwd) : null;
     const remaining = terminalTabs.filter((item) => item.id !== tab.id);
     setTerminalTabs((tabs) => tabs.flatMap((item) => item.id !== tab.id ? [item] : replacement ? [replacement] : []));
-    setActiveFileTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? fileTabs.at(-1)?.id ?? lastAgentTabId(agentTabs));
-    if (!replacement && !remaining.length && !fileTabs.length && !agentTabs.length) setRightPanelOpen(false);
+    setActiveTerminalTabId((current) => current !== tab.id ? current : replacement?.id ?? remaining.at(-1)?.id ?? null);
+    if (!replacement && !remaining.length) {
+      setTerminalOpen(false);
+    }
   };
 
   const handleCloseFileTab = useCallback((tabId: string) => {
-    if (terminalTabs.some((tab) => tab.id === tabId)) {
-      setTerminalTabs((tabs) => tabs.map((tab) => tab.id === tabId && !tab.closing ? { ...tab, closing: "close" } : tab));
-      return;
-    }
     if (tabId.startsWith("agent:")) {
       const remainingAgents = agentTabs.filter((tab) => `agent:${tab.sessionId}` !== tabId);
       setAgentTabs(remainingAgents);
       setActiveFileTabId((cur) => {
         if (cur !== tabId) return cur;
-        return fileTabs.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
+        return fileTabs.at(-1)?.id ?? lastAgentTabId(remainingAgents);
       });
-      if (fileTabs.length === 0 && terminalTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
+      if (fileTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
       return;
     }
     setFileTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && terminalTabs.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
+      if (next.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
       return next;
     });
     setActiveFileTabId((cur) => {
       if (cur !== tabId) return cur;
       const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? terminalTabs.at(-1)?.id ?? lastAgentTabId(agentTabs);
+      return remaining.at(-1)?.id ?? lastAgentTabId(agentTabs);
     });
-  }, [fileTabs, terminalTabs, agentTabs]);
+  }, [fileTabs, agentTabs]);
 
   const handleViewFullHistory = useCallback(() => {
     if (!selectedSession) return;
@@ -2150,7 +2144,7 @@ export function AppShell() {
         data-mobile-toolbar-file={mobile ? "true" : undefined}
         style={{
           // With a chat the Debug button is right-aligned instead (renderDebugButton).
-          marginLeft: !mobile && !showChat ? "auto" : 0,
+          marginLeft: !mobile && !showChat && !terminalTabs.length ? "auto" : 0,
           display: "flex", alignItems: "center", justifyContent: "center",
           width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
           visibility: covered ? "hidden" : "visible",
@@ -2166,6 +2160,30 @@ export function AppShell() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="15" y1="3" x2="15" y2="21" />
         </svg>
+      </button>
+    );
+  };
+
+  const renderTerminalToggle = (mobile: boolean) => {
+    if (!terminalTabs.length) {
+      return null;
+    }
+    const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
+    return (
+      <button
+        type="button"
+        className="terminal-dock-toggle"
+        disabled={covered}
+        tabIndex={covered ? -1 : undefined}
+        aria-hidden={covered ? true : undefined}
+        aria-controls="terminal-dock"
+        aria-expanded={terminalOpen}
+        aria-label={translate(terminalOpen ? "terminal.hidePanel" : "terminal.showPanel")}
+        title={translate(terminalOpen ? "terminal.hidePanel" : "terminal.showPanel")}
+        onClick={() => setTerminalOpen((open) => !open)}
+        style={{ marginLeft: !mobile && !showChat ? "auto" : 0, visibility: covered ? "hidden" : "visible" }}
+      >
+        <TerminalIcon />
       </button>
     );
   };
@@ -2387,6 +2405,7 @@ export function AppShell() {
               {!isNarrowMobile && renderChatToolbarActions(true)}
               {!isNarrowMobile && renderDebugButton(true)}
               {renderSessionStatsButton(true)}
+              {renderTerminalToggle(true)}
               {renderMainFileToggle(true)}
               {isNarrowMobile && mobileToolbarMoreOpen && (
                 <div
@@ -2426,6 +2445,7 @@ export function AppShell() {
               {renderSessionStatsButton(false)}
             </>
           )}
+          {!isMobile && renderTerminalToggle(false)}
           {!isMobile && renderMainFileToggle(false)}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
@@ -2691,7 +2711,7 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <div className="chat-workspace-content" style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <ChatWindow
               key={sessionKey}
@@ -2777,6 +2797,17 @@ export function AppShell() {
             )
           ) : null}
         </div>
+        <TerminalDock
+          tabs={terminalTabs}
+          activeId={activeTerminalTabId}
+          open={terminalOpen}
+          onSelect={setActiveTerminalTabId}
+          onHide={() => setTerminalOpen(false)}
+          onClose={(id) => setTerminalTabs((tabs) => tabs.map((tab) => tab.id === id && !tab.closing ? { ...tab, closing: "close" } : tab))}
+          onRestart={(id) => setTerminalTabs((tabs) => tabs.map((tab) => tab.id === id ? { ...tab, closing: "restart" } : tab))}
+          onClosed={handleTerminalClosed}
+          onCloseError={(id) => setTerminalTabs((tabs) => tabs.map((tab) => tab.id === id ? { ...tab, closing: undefined } : tab))}
+        />
       </div>
 
       <div
@@ -2896,22 +2927,11 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId, page },
               )}
             />
-          ) : !terminalTabs.some((tab) => tab.id === activeFileTabId) && !activeAgentTab ? (
+          ) : !activeAgentTab ? (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
                {translate("files.noneOpen")}
             </div>
           ) : null}
-          {terminalTabs.map((tab) => (
-            <div key={tab.id} hidden={tab.id !== activeFileTabId} style={{ width: "100%", height: "100%" }}>
-              <TerminalPanel
-                tab={tab}
-                active={rightPanelOpen && tab.id === activeFileTabId}
-                onRestart={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: "restart" } : item))}
-                onClosed={() => handleTerminalClosed(tab)}
-                onCloseError={() => setTerminalTabs((tabs) => tabs.map((item) => item.id === tab.id ? { ...item, closing: undefined } : item))}
-              />
-            </div>
-          ))}
           {activeAgentTab && (
             <SubagentViewer
               key={activeAgentTab.sessionId}
