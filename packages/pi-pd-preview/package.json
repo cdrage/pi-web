@@ -1,0 +1,10 @@
+{
+  "name": "@agegr/pi-pd-preview",
+  "version": "0.1.0",
+  "description": "Podman Desktop previews for Pi",
+  "license": "MIT",
+  "type": "module",
+  "pi": { "extensions": ["./index.ts"] },
+  "dependencies": { "openid-client": "6.8.8", "proper-lockfile": "4.1.2", "typebox": "1.3.27" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "^1.2.0" }
+}

@@ -1,0 +1,23 @@
+spec:
+  oidc:
+    passThroughAuthHeader: true
+    forwardAccessToken: false
+    provider:
+      issuer: https://auth.k8s.land/dex
+      authorizationEndpoint: https://auth.k8s.land/dex/auth
+      tokenEndpoint: https://auth.k8s.land/dex/token
+  jwt:
+    providers:
+      - name: dex
+        issuer: https://auth.k8s.land/dex
+        audiences:
+          - envoy-gateway-private
+          - pi-pd-preview
+        remoteJWKS:
+          uri: https://auth.k8s.land/dex/keys
+          cacheDuration: 300s
+        extractFrom:
+          cookies:
+            - dex-id-token
+          headers:
+            - name: X-Pi-OIDC-Token

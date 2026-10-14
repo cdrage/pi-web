@@ -19,6 +19,7 @@ import { AgentSessionPanel } from "./AgentSessionPanel";
 import { DebugPanel, DebugPanelBoundary } from "./DebugPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalDock } from "./TerminalDock";
+import { PreviewCard, PreviewIcon } from "./PreviewCard";
 import { TerminalIcon } from "./SidebarIcons";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -61,6 +62,7 @@ import {
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
+  getPreviewMaxWidth,
   getSidebarMaxWidth,
   RIGHT_PANEL_FALLBACK_WIDTH,
   RIGHT_PANEL_MAX_WIDTH,
@@ -68,6 +70,9 @@ import {
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
+  PREVIEW_PANEL_DEFAULT_WIDTH,
+  PREVIEW_PANEL_MIN_WIDTH,
+  PREVIEW_PANEL_MAX_WIDTH,
 } from "@/lib/panel-layout";
 import type { BlockingExtensionUiRequest, SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { McpErrorResponse, ProjectTrustStatus } from "@/lib/api-types";
@@ -234,6 +239,7 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(() => !initialNavigation.sidebarCollapsed);
   const desktopSidebarOpenRef = useRef(!initialNavigation.sidebarCollapsed);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [rightPanelExpanded, setRightPanelExpanded] = useState(false);
   const rightPanelFullWidth = rightPanelOpen && rightPanelExpanded && !isMobile;
   useEffect(() => {
@@ -250,6 +256,7 @@ export function AppShell() {
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
+  const previewWidthRef = useRef(PREVIEW_PANEL_DEFAULT_WIDTH);
   const getResponsiveRightPanelWidth = useCallback(
     () => typeof window === "undefined"
       ? RIGHT_PANEL_FALLBACK_WIDTH
@@ -263,8 +270,10 @@ export function AppShell() {
         viewportWidth: window.innerWidth,
         rightPanelOpen,
         rightPanelWidth: rightPanelWidthRef.current,
+        previewOpen,
+        previewWidth: previewWidthRef.current,
       }),
-    [rightPanelOpen],
+    [rightPanelOpen, previewOpen],
   );
   const getResponsiveRightPanelMaxWidth = useCallback(
     () => typeof window === "undefined"
@@ -273,9 +282,15 @@ export function AppShell() {
         viewportWidth: window.innerWidth,
         sidebarOpen,
         sidebarWidth: sidebarWidthRef.current,
+        previewOpen,
+        previewWidth: previewWidthRef.current,
       }),
-    [sidebarOpen],
+    [sidebarOpen, previewOpen],
   );
+  const getPreviewLimit = useCallback(() => typeof window === "undefined"
+    ? PREVIEW_PANEL_MAX_WIDTH
+    : getPreviewMaxWidth({ viewportWidth: window.innerWidth, sidebarOpen, sidebarWidth: sidebarWidthRef.current,
+      rightPanelOpen, rightPanelWidth: rightPanelWidthRef.current }), [sidebarOpen, rightPanelOpen]);
   const sidebarResizer = useResizablePanel({
     ariaLabel: translate("layout.resizeSidebar"),
     cssVariable: "--sidebar-width",
@@ -301,6 +316,13 @@ export function AppShell() {
   });
   const reclampSidebarWidth = sidebarResizer.reclampWidth;
   const reclampRightPanelWidth = rightPanelResizer.reclampWidth;
+  const previewResizer = useResizablePanel({
+    ariaLabel: translate("preview.resize"), cssVariable: "--preview-panel-width",
+    defaultWidth: PREVIEW_PANEL_DEFAULT_WIDTH, getMaxWidth: getPreviewLimit, growthDirection: "left",
+    maxWidth: PREVIEW_PANEL_MAX_WIDTH, minWidth: PREVIEW_PANEL_MIN_WIDTH,
+    storageKey: "pi-preview-panel-width", widthRef: previewWidthRef, persistClamp: false,
+  });
+  const reclampPreview = previewResizer.reclampWidth;
   // On mobile the sidebar is an overlay drawer; hide it by default so the chat
   // is visible on load. Runs once the breakpoint resolves after hydration.
   // Mobile drawer actions must not change the remembered desktop preference.
@@ -311,10 +333,12 @@ export function AppShell() {
     setMobileSidebarReady(true);
   }, []);
   useEffect(() => {
-    if (!rightPanelOpen) return;
-    reclampSidebarWidth();
+    if (!rightPanelOpen && !previewOpen) { return; }
+    // Fit both side panes before the sidebar so that the chat keeps usable space.
     reclampRightPanelWidth();
-  }, [reclampRightPanelWidth, reclampSidebarWidth, rightPanelOpen]);
+    reclampPreview();
+    reclampSidebarWidth();
+  }, [reclampRightPanelWidth, reclampSidebarWidth, reclampPreview, rightPanelOpen, previewOpen]);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -2446,6 +2470,15 @@ export function AppShell() {
             </>
           )}
           {!isMobile && renderTerminalToggle(false)}
+          {projectTrustCwd && <button
+            type="button"
+            className="preview-toggle"
+            title={translate("preview.title")}
+            aria-label={translate("preview.title")}
+            aria-expanded={previewOpen}
+            aria-controls="workspace-preview"
+            onClick={() => setPreviewOpen((open) => !open)}
+          ><PreviewIcon /></button>}
           {!isMobile && renderMainFileToggle(false)}
           {isMobile && sessionHasBranches && (
             <BranchNavigator
@@ -2943,6 +2976,20 @@ export function AppShell() {
           )}
         </div>
       </div>
+      {previewOpen && projectTrustCwd && (
+        <div id="workspace-preview" ref={previewResizer.panelRef} inert={rightPanelFullWidth}
+          className={`preview-panel${rightPanelOpen ? " with-file-panel" : ""}${previewResizer.isResizing ? " is-resizing" : ""}`}
+          style={{
+            "--preview-panel-width": `${previewResizer.width}px`,
+            "--preview-panel-min-width": `${PREVIEW_PANEL_MIN_WIDTH}px`,
+          } as React.CSSProperties}>
+          {/* Keep the divider on the pane's edge in split and overlay layouts. */}
+          <div {...previewResizer.separatorProps} aria-controls="workspace-preview"
+            className={`panel-resize-handle preview-panel-resizer${previewResizer.isResizing ? " is-resizing" : ""}`}
+            data-resize-handle="preview" />
+          <PreviewCard key={projectTrustCwd} cwd={projectTrustCwd} onSettings={() => openSettingsSection("previews")} onClose={() => setPreviewOpen(false)} />
+        </div>
+      )}
     </div>
     {settingsSection && (
       <SettingsPanel

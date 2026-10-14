@@ -1,10 +1,12 @@
 import type { LocalePlugin } from "../types";
+import { previewZhCN } from "./previews";
 
 /** Pi Web 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
   id: "zh-CN",
   label: "简体中文",
   messages: {
+    ...previewZhCN,
     "review.title": "代码审查",
     "review.previousFile": "上一个变更文件",
     "review.nextFile": "下一个变更文件",

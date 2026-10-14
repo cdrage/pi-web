@@ -31,6 +31,7 @@
     "!.next/dev",
     "!.next/**/*.js.map",
     "public",
+    "packages/pi-pd-preview",
     "next.config.ts",
     "package.json"
   ],
@@ -46,6 +47,7 @@
     "test:terminal-layout": "node e2e/terminal-layout.mjs",
     "test:themes": "node e2e/themes.mjs",
     "test:review": "node e2e/code-review.mjs",
+    "test:previews": "node e2e/previews.mjs",
     "test:e2e": "node e2e/run.mjs",
     "test": "node --experimental-strip-types --test \"app/**/*.test.mjs\" \"components/**/*.test.mjs\" \"hooks/**/*.test.mjs\" \"lib/**/*.test.mjs\" \"public/**/*.test.mjs\"",
     "release": "npm version patch -m \"Release v%s\""
@@ -63,6 +65,7 @@
     "js-yaml": "^5.2.3",
     "next": "16.3.8",
     "node-pty": "1.2.0-beta.15",
+    "openid-client": "6.8.8",
     "proper-lockfile": "4.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

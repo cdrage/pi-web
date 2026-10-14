@@ -1,10 +1,12 @@
 import type { LocalePlugin } from "../types";
+import { previewEn } from "./previews";
 
 /** Pi Web 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
   id: "en",
   label: "English",
   messages: {
+    ...previewEn,
     "review.title": "Code review",
     "review.previousFile": "Previous changed file",
     "review.nextFile": "Next changed file",

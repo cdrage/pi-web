@@ -1,0 +1,99 @@
+.preview-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.preview-toggle:hover, .preview-toggle[aria-expanded="true"] { color: var(--accent); background: var(--bg-selected); }
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.preview-controls { overflow: auto; padding: 10px 12px; }
+.preview-desktop { --preview-desktop-inset: 8px; display: flex; flex-direction: column; flex: 1; min-height: 0; padding: var(--preview-desktop-inset); }
+.preview-desktop iframe { width: 100%; flex: 1; min-height: 0; border: 0; background: var(--bg); }
+.preview-desktop > p { padding-inline: 12px; }
+.preview-details { margin-top: 8px; }
+.preview-details > summary { cursor: pointer; }
+.preview-details > summary span { float: right; color: var(--text-dim); }
+.preview-help { line-height: 1.5; }
+.preview-help dt { color: var(--text); margin-top: 6px; }
+.preview-help dd { margin-left: 0; }
+.preview-panel { position: relative; width: var(--preview-panel-width); min-width: min(var(--preview-panel-min-width), 100vw); flex-shrink: 0; overflow: hidden; border-left: 1px solid var(--border); }
+.preview-panel-resizer { position: absolute; inset: 0 auto 0 0; margin: 0; }
+.preview-panel-resizer::after { left: 0; }
+.preview-panel.is-resizing iframe { pointer-events: none; }
+.preview-panel .preview-form { flex-direction: column; }
+.preview-panel .preview-heading-actions { flex-shrink: 0; }
+/* Keep the split thresholds in step with lib/panel-layout.ts. */
+@media (max-width: 979px) {
+  .preview-panel { position: fixed; inset: 0 0 0 auto; width: min(var(--preview-panel-width), 100vw); z-index: 270; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); background: var(--bg-panel); }
+}
+@media (min-width: 980px) and (max-width: 1179px) {
+  .preview-panel.with-file-panel { position: fixed; inset: 0 0 0 auto; width: min(var(--preview-panel-width), 100vw); z-index: 270; background: var(--bg-panel); }
+}
+.preview-card p, .preview-controls p { margin: 8px 0; }
+.preview-card > .preview-error { padding-inline: 12px; }
+.preview-heading, .preview-heading-actions, .preview-actions, .preview-source, .preview-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-heading { min-height: 36px; flex-shrink: 0; padding: 4px 6px 4px 12px; gap: 6px; border-bottom: 1px solid var(--border); }
+.preview-heading > svg, .preview-phase { flex-shrink: 0; }
+.preview-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.preview-heading-actions { margin-left: auto; gap: 2px; }
+.preview-tool-button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--text-muted); cursor: pointer; text-decoration: none; }
+.preview-tool-button:hover, .preview-tool-button[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
+.preview-tool-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.preview-close { font-size: 20px; }
+.preview-phase { padding: 2px 7px; border: 1px solid currentColor; border-radius: 12px; white-space: nowrap; }
+.preview-phase.is-ready, .preview-success, .preview-freshness.is-current { color: var(--terminal-green, var(--accent)); }
+.preview-error, .preview-phase.is-failed, .preview-phase.is-expired, .preview-freshness.is-failed { color: var(--terminal-red, var(--accent)); }
+.preview-warning, .preview-freshness.is-push-required, .preview-freshness.is-update-required, .preview-phase.is-updating { color: var(--terminal-yellow, var(--accent)); }
+.preview-source { flex-wrap: wrap; margin: 8px 0; overflow-wrap: anywhere; }
+.preview-commits { display: flex; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0; }
+.preview-commits div { display: flex; gap: 6px; }
+.preview-commits dd { margin: 0; color: var(--text); }
+.preview-actions { flex-wrap: wrap; margin: 8px 0; }
+.preview-actions a { text-decoration: none; }
+.preview-confirm { flex-wrap: wrap; padding: 8px; border: 1px solid var(--terminal-red, var(--border)); border-radius: 6px; }
+.preview-logs { max-height: 220px; overflow: auto; padding: 10px; background: var(--bg); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); }
+.preview-form { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.preview-form label { display: flex; flex-direction: column; gap: 5px; min-width: 120px; flex: 1; }
+.preview-form input, .preview-form select { width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text); font: inherit; }
+.preview-form input:focus, .preview-form select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.preview-form .preview-check { flex-direction: row; align-items: center; flex: auto; }
+.preview-check input { width: auto; }
+.preview-advanced { flex-basis: 100%; }
+.preview-advanced summary { cursor: pointer; color: var(--text); margin-bottom: 8px; }
+.preview-advanced label { display: inline-flex; vertical-align: top; margin: 5px 16px 5px 0; }
+.preview-form > .preview-actions { flex-basis: 100%; }
+.preview-settings { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.preview-settings .preview-form { flex-direction: column; max-width: 640px; }
+.preview-settings p, .preview-settings code { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.preview-settings h2 { font-size: 16px; color: var(--text); }
+@media (max-width: 640px) {
+  .preview-panel { width: 100%; height: var(--app-viewport-height, 100dvh); bottom: auto; }
+  .preview-controls { padding: 10px; }
+  .preview-toggle { min-width: 32px; }
+  .preview-card .config-button { min-height: 36px; }
+}
+@media (pointer: coarse) {
+  .preview-heading { padding-block: 3px; }
+  .preview-tool-button { width: 36px; height: 36px; }
+}

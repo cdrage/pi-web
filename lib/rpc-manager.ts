@@ -58,6 +58,7 @@ import type { McpHost } from "./mcp-host";
 import type { DebugMcpHost, DebugSessionLifecycle, DebugWrapperSnapshot } from "./debug-types";
 import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension, createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
+import { previewExtension, previewPolicy } from "./pd-preview";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
 import { collectLiveAssistantNotices, readShowCacheMissNotices, withSessionPrices } from "./transcript-notices-server";
@@ -3170,6 +3171,8 @@ export async function startRpcSession(
             extensionFactories: [
               ...(builtins?.extensions ?? []),
               createReadOnlyMcpPolicyExtension(),
+              previewExtension(agentDir),
+              previewPolicy(),
               createProjectCommandBashExtension({
                 cwd: sessionCwd,
                 settings: settingsManager,

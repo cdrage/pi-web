@@ -1,10 +1,12 @@
 import type { LocalePlugin } from "../types";
+import { previewZhTW } from "./previews";
 
 /** Pi Web 內建繁體中文語系。 */
 export const zhTWLocale: LocalePlugin = {
   id: "zh-TW",
   label: "繁體中文",
   messages: {
+    ...previewZhTW,
     "review.title": "程式碼審查",
     "review.previousFile": "上一個變更檔案",
     "review.nextFile": "下一個變更檔案",

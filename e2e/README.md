@@ -65,3 +65,24 @@ Model prompts, live model streaming, and agent execution are outside this suite.
 Failures save a screenshot, Playwright trace, and server log under
 `test-results/e2e/`; CI uploads that directory. Open a trace with
 `npx playwright show-trace test-results/e2e/trace.zip`.
+
+## Focused browser suites
+
+Start or reuse the development server on port `30141` before these suites.
+If the server uses another address, set `E2E_BASE_URL`.
+
+```sh
+npm run test:review
+npm run test:terminal-layout
+npm run test:themes
+npm run test:previews
+```
+
+Review, terminal layout, and preview suites use mock APIs for their feature checks.
+They require no model credentials, PTY process, or Kubernetes service.
+The review suite runs Chromium and WebKit. Terminal layout and previews default to Chromium.
+Set `PI_WEB_E2E_BROWSER=webkit` for WebKit in those suites.
+The theme suite uses Chromium.
+
+Artifacts appear under `test-results/code-review/`, `test-results/terminal-layout/`, `test-results/themes/`, and `test-results/previews/`.
+Except for themes, `PI_WEB_E2E_ARTIFACTS` overrides the artifact directory.

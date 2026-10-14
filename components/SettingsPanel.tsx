@@ -35,6 +35,8 @@ import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigSwitch } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+import { PreviewSettings } from "./PreviewSettings";
+import { PreviewIcon } from "./PreviewCard";
 
 interface Props {
   cwd: string | null;
@@ -53,6 +55,9 @@ interface Props {
 }
 
 export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: { section: SettingsSection; size?: number; strokeWidth?: number }) {
+  if (section === "previews") {
+    return <PreviewIcon />;
+  }
   const common = {
     width: size,
     height: size,
@@ -527,6 +532,7 @@ export function SettingsPanel({
     { id: "agents", label: t("common.agents") },
     { id: "plugins", label: t("common.plugins") },
     { id: "mcp", label: t("settings.mcp") },
+    { id: "previews", label: t("preview.title") },
   ] as const).map((item) => ({ ...item, requiresProject: settingsSectionRequiresProject(item.id) }));
   const sectionRequiresProject = settingsSectionRequiresProject(section);
 
@@ -620,6 +626,7 @@ export function SettingsPanel({
         <main className="settings-dialog-main">
           {sectionHost("general", <GeneralSettings sessionId={sessionId} onSessionReloaded={onSessionReloaded} quoteSelectionEnabled={quoteSelectionEnabled} onQuoteSelectionChange={onQuoteSelectionChange} />)}
           {sectionHost("models", <ModelsConfig embedded cwd={cwd} onClose={onClose} />)}
+          {sectionHost("previews", <PreviewSettings />)}
           {/* Visited sections stay mounted, so the ones whose answer depends on trust take the page's
               status and load again in place when trusting from Settings › MCP changes it. */}
           {cwd && sectionHost("skills", <SkillsConfig embedded key={cwd} cwd={cwd} trust={projectTrust} onClose={onClose} />)}

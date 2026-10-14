@@ -197,6 +197,34 @@ New sessions and the files tab ("the files tab" here is the files section below 
 - A status with nothing visible (empty after stripping ANSI) gets no cell. Touch screens get 44px cells (widget triggers included) only when the bar has a command button.
 - Statuses exist only while the session's wrapper is alive, so a fresh chat or a session nobody has prompted yet shows no cells (and no buttons) until its first message.
 
+## Podman Desktop previews
+
+`lib/pd-preview.ts` adapts the portable package in `packages/pi-pd-preview/` to Pi Web.
+Normal sessions load its replaceable extension. Chat-only sessions and subagents do not load it automatically.
+The extension uses standard commands, tools, custom messages, and `setStatus`. It adds no extension UI fields.
+`PreviewCard` opens from AppShell's desktop icon. Closing the card or a chat never deletes a remote preview.
+The preview follows the file panel, with a 300px minimum, a 1000px default width, and a 1200px maximum.
+It fits beside chat from 980px, or 1180px with the file panel open. Smaller windows use an overlay that fits the viewport.
+The divider stays inside the pane in both layouts. Phones use the full viewport width.
+Outside clicks keep the preview open and reach the chat. The close button and toolbar icon close the pane.
+`PreviewDesktop` keeps its iframe across status polls, Sync, and panel size changes. A new desktop ID replaces the iframe.
+Both direct and relayed viewer URLs select Kasm's remote resize mode, so the desktop resolution follows the iframe viewport.
+One compact toolbar holds the phase, Open Desktop, the controls menu, and Close. The desktop fills the remaining pane with an 8px inset.
+The controls menu uses `SidebarMenu` and holds details, maintenance actions, and notices. It overlays the desktop without a viewport resize.
+Before the desktop is ready, the setup form and controls stay visible. Errors stay visible above the desktop.
+Both applications default to build mode `dev`. A repository or checkout folder name that contains `extension` selects Extension, regardless of case.
+Manual application choices take precedence and survive status refreshes. The form and portable service share these defaults.
+For local HTTP Pi Web, `preview-desktop` creates an isolated loopback relay through `preview-desktop-relay`.
+The relay adds the saved OIDC identity to HTTP and WebSocket requests. Dex credentials stay on the server.
+The desktop route uses the validated Host header for the parent origin. Next production can replace the request URL hostname with `localhost`.
+The relay hostname must match the browser hostname for its strict cookie and frame policy.
+A private cookie grants access to the relay. The relay closes at the desktop expiry.
+Other Pi Web addresses embed the remote VNC URL directly and depend on browser access to that URL.
+The card captures its worktree and branch for each mutation. The service refuses a request after either changes.
+The package README describes source selection, commit status, expiry, and installation in the Pi CLI.
+`/preview login` and `/preview logout` manage the OIDC session that Pi Web shares with the CLI.
+They use standard commands and custom messages. Sign-in credentials never enter the transcript.
+
 ## Review comments enter the composer
 
 `DiffReview` exports one batch through AppShell to `ChatInputHandle.insertText()`. It preserves the existing draft.
