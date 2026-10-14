@@ -1324,6 +1324,33 @@ export function AppShell() {
     activeNewSessionDraftKeyRef.current = newSessionDraftKey;
   }, [newSessionDraftKey]);
 
+  const handleReviewPrompt = useCallback(async (loadPrompt: (cwd?: string) => Promise<string>, send = false) => {
+    const session = selectedSessionRef.current;
+    const sessionId = session?.id;
+    const draftKey = activeNewSessionDraftKeyRef.current;
+    const prompt = await loadPrompt(session?.cwd ?? effectiveNewSessionCwd ?? undefined);
+
+    // An export can outlive a chat switch. Preserve the new chat's draft.
+    if (selectedSessionRef.current?.id !== sessionId || activeNewSessionDraftKeyRef.current !== draftKey) {
+      return false;
+    }
+    const input = chatInputRef.current;
+    if (!input || !prompt) {
+      return false;
+    }
+
+    input.insertText(prompt);
+    if (send && !await input.submit()) {
+      return false;
+    }
+
+    if (isMobile) {
+      setRightPanelOpen(false);
+      setSidebarOpen(false);
+    }
+    return true;
+  }, [effectiveNewSessionCwd, isMobile]);
+
   // The bar above a fresh composer. Only a fresh composer moves, and only
   // somewhere else: the folder in use would remount it for nothing. The
   // control the move came from takes focus in the bar of the new composer.
@@ -2856,6 +2883,12 @@ export function AppShell() {
                 viewerState,
               )}
               onMentionLines={rightPanelOpen ? handleFileLineMention : undefined}
+              onAddReview={rightPanelOpen ? handleReviewPrompt : undefined}
+              onOpenDiff={(filePath) => handleOpenFile(
+                filePath,
+                getFileName(filePath),
+                { sourceSessionId: activeFileTab.sourceSessionId, modeHint: "diff" },
+              )}
               onAtMention={handleAtMention}
               onOpenFile={(filePath, page) => handleOpenFile(
                 filePath,

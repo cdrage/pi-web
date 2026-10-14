@@ -45,6 +45,22 @@
 - Large files arrive in 256 KB chunks with "Load more". The table shows a loaded prefix too (`complete: false`): its last record is dropped unless a line break outside quotes ends it, so a record cut mid-field never shows; it appears once the next chunk loads. Markdown and HTML keep their preview off while truncated.
 - Rows have one fixed height and only those around the viewport are rendered (`visibleRowRange()`, the SessionTree approach; no virtualization library). The table scrolls inside the viewer's own content box (`scrollRef`), so its scroll position is saved and restored like the source view's; it reads the box in a passive effect because the parent's ref is not attached yet in the child's layout effects. Column widths come from up to 500 sampled rows, clamped to 64–420 px; a cell ellipsizes and its full value is its tooltip. Gutter and header use `--bg-panel`, opaque, so columns scrolling under the sticky strips never show through.
 
+## Code review drafts
+
+- The Diff tab uses `components/DiffReview.tsx`. It supports comments on lines, ranges, and files.
+- Previous and Next use the changed-file order from `useCodeReview`. Each button stops at its list boundary.
+- The toolbar shows a file-comment action and search. Saved comments reveal the comment count and chat export.
+- Line selection reveals an inline comment action below the range. Copy and clear stay in the comments panel.
+- Reviewed marks from older drafts stay in storage. The interface no longer exposes that flag.
+- `hooks/useCodeReview.ts` connects the review store to the existing Git APIs through `lib/code-review-client.ts`. File access rules stay at those APIs.
+- `lib/code-review-store.ts` saves drafts in browser localStorage per repository root. Worktrees have separate roots. Drafts survive file switches and page reloads.
+- Each comment keeps its original code, old and new line ranges, and patch identity. A changed or absent patch removes its saved comments.
+- A live patch update clears the selection and closes the comment editor. Comments on unchanged files remain in the draft.
+- Export reads fresh patches for every comment. A compact numbered prompt uses file and line references. Deleted lines carry an `OLD` label.
+- Export discards obsolete comments before it formats the prompt. Failed diff requests preserve saved comments.
+- The chat export uses paths relative to the destination's cwd, or absolute paths outside it.
+- Mouse clicks select lines. Shift-click selects a range within one hunk. A local Escape consumes the event before the global agent-stop handler.
+
 ## Web password throttling
 - `lib/auth-throttle.ts` is deliberately global, not per-IP (its header says why). Failures double the delay (1 s → 60 s cap) for everyone; a success or 5 idle minutes resets it. The reset window must stay longer than the max delay, or waiting out one block restarts the burst.
 - State lives on `globalThis` under `Symbol.for("pi-web:auth-throttle")`, so it survives hot reload and `proxy.ts` and the route handlers share it under both `next dev` and `next start`. Tests reset it with `recordAuthSuccess()`.

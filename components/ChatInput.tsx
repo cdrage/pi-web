@@ -106,6 +106,7 @@ interface Props {
 
 export interface ChatInputHandle {
   insertText: (text: string) => void;
+  submit: () => Promise<boolean>;
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
@@ -754,6 +755,9 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   attachedImagesRef.current = attachedImages;
 
   useImperativeHandle(ref, () => ({
+    submit() {
+      return handleSend();
+    },
     insertIfEmpty(text: string) {
       const ta = textareaRef.current;
       const current = ta ? ta.value : value;
@@ -1043,14 +1047,30 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
     const ta = textareaRef.current;
     if (!ta) return;
     let previousWidth = -1;
+    let frame: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
       // Height updates also notify the observer; only remeasure on width changes.
-      if (entry.contentRect.width === previousWidth) return;
+      if (entry.contentRect.width === previousWidth) {
+        return;
+      }
       previousWidth = entry.contentRect.width;
-      resizeTextarea();
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+
+      // Resize outside observer delivery so Safari can report the new height.
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        resizeTextarea();
+      });
     });
     observer.observe(ta);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+      }
+    };
   }, [resizeTextarea]);
 
   useEffect(() => {
@@ -1095,15 +1115,24 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
-    if (!msg && !attachedImages.length) return;
+    // Read the current input so an imperative insert can submit in the same turn.
+    const msg = (textareaRef.current?.value ?? valueRef.current).trim();
+    const images = attachedImagesRef.current;
+    if (!msg && !images.length) {
+      return false;
+    }
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || offersBuiltinSlashCommandWhileStreaming(msg);
-    if (builtinAllowed && await runBuiltinCommand(msg)) return;
-    if (isStreaming) return;
+    if (builtinAllowed && await runBuiltinCommand(msg)) {
+      return true;
+    }
+    if (isStreaming) {
+      return false;
+    }
     clearInput();
-    onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+    onSend(msg, images.length ? images : undefined);
+    return true;
+  }, [isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()

@@ -197,6 +197,17 @@ New sessions and the files tab ("the files tab" here is the files section below 
 - A status with nothing visible (empty after stripping ANSI) gets no cell. Touch screens get 44px cells (widget triggers included) only when the bar has a command button.
 - Statuses exist only while the session's wrapper is alive, so a fresh chat or a session nobody has prompted yet shows no cells (and no buttons) until its first message.
 
+## Review comments enter the composer
+
+`DiffReview` exports one batch through AppShell to `ChatInputHandle.insertText()`. It preserves the existing draft.
+Add to chat leaves the draft for edits. Add to chat & send calls `ChatInputHandle.submit()` through the normal composer submission path.
+The submit method reads the current input so that a text insert and submission can share one turn.
+The composer's width observer defers height updates to the next frame so that Safari can deliver resize notifications.
+On phones, AppShell closes the file panel after insertion or submission.
+AppShell captures the destination before export. If the chat changes before export completes, the new draft stays untouched.
+An empty export never submits the existing draft.
+The primary export button uses the accent color and shows the comment count. Green notices mark a successful export. Red notices mark failures.
+
 ## Message list props stay stable (`components/ChatWindow.tsx`)
 - ChatWindow re-renders on every chat update (streamed chunks aside, see below): tool results, notices, statuses, and each render an extension's custom panel sends (one or two per key typed into it). `MessageView` and `MarkdownBody` are `memo`'d, so each prop the list hands them keeps its identity while the transcript is unchanged: `toolResultsMap` is memoized, and a grouped turn's answer and process copies and its written-files list come from `getFinalAnswerViews()` / `keepWrittenFiles()` (`lib/turn-views.ts`), cached per stored message. Copies built inline re-ran every visible answer's markdown per keystroke (#1005).
 

@@ -754,8 +754,9 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
   const run = async (value, { isStreaming, handled }) => {
     const calls = { builtin: [], sent: [] };
     const handleSend = chatInputCallback("handleSend", {
-      value,
-      attachedImages: [],
+      textareaRef: { current: { value } },
+      valueRef: { current: value },
+      attachedImagesRef: { current: [] },
       onAudioUnlock() {},
       isStreaming,
       offersBuiltinSlashCommandWhileStreaming,
@@ -771,6 +772,27 @@ test("handleSend lets a handled /mcp through while streaming and sends an unowne
   assert.deepEqual(await run("/mcp", { isStreaming: false, handled: false }), { builtin: ["/mcp"], sent: ["/mcp"] });
   // Streaming without steer handlers keeps any other message in the composer, as before.
   assert.deepEqual(await run("/mcp login", { isStreaming: true, handled: false }), { builtin: [], sent: [] });
+});
+
+test("submits an imperative text insert before the next React render", async () => {
+  const original = "Keep this draft.";
+  const prompt = `${original}\n\nAddress these comments:\n\n1. \`app.ts\` - Fix this line.`;
+  const images = [{ data: "AQID", mimeType: "image/png" }];
+  const calls = [];
+  const handleSend = chatInputCallback("handleSend", {
+    textareaRef: { current: { value: prompt } },
+    valueRef: { current: original },
+    attachedImagesRef: { current: images },
+    onAudioUnlock() {},
+    isStreaming: false,
+    offersBuiltinSlashCommandWhileStreaming,
+    runBuiltinCommand: async () => false,
+    clearInput() { calls.push("clear"); },
+    onSend: (message, attached) => calls.push({ message, attached }),
+  });
+
+  assert.equal(await handleSend(), true);
+  assert.deepEqual(calls, ["clear", { message: prompt, attached: images }]);
 });
 
 test("restores text and base64 images when editing a user message", () => {

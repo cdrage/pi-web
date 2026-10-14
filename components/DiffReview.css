@@ -1,0 +1,153 @@
+.diff-review {
+  --review-added: rgba(0, 200, 80, 0.12);
+  --review-removed: rgba(240, 60, 60, 0.14);
+  --review-success: #22c55e;
+  --review-error: #ef4444;
+  min-width: 0;
+  color: var(--text);
+  outline: none;
+  container-type: inline-size;
+  container-name: diff-review;
+}
+
+.diff-review button,
+.diff-review input,
+.diff-review textarea {
+  color: var(--text);
+  font: inherit;
+}
+
+.diff-review button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  padding: 4px 7px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.diff-review button:hover { background: var(--bg-hover); }
+.diff-review button:disabled { opacity: 0.45; cursor: default; }
+.diff-review button[aria-expanded="true"] { background: var(--bg-selected); color: var(--accent); }
+.diff-review button.diff-review-submit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+.diff-review button.diff-review-submit:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.diff-review button:focus-visible,
+.diff-review input:focus-visible,
+.diff-review textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.diff-review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  padding: 7px 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-review-navigation { display: flex; flex-shrink: 0; align-items: center; gap: 4px; padding-right: 8px; border-right: 1px solid var(--border); }
+.diff-review-navigation > button { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; }
+.diff-review-navigation > span { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diff-review-tools { display: flex; flex: 1; min-width: 0; gap: 6px; align-items: center; }
+.diff-review-tools > button { flex-shrink: 0; min-height: 28px; white-space: nowrap; }
+.diff-review button.diff-review-file-comment { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.diff-review-toolbar-hint { flex: 1; min-width: 0; color: var(--text-dim); font-size: 11px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.diff-review button.diff-review-search-toggle { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-color: transparent; background: transparent; color: var(--text-muted); }
+.diff-review button.diff-review-search-toggle:hover,
+.diff-review button.diff-review-search-toggle[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
+.diff-review-hint { display: block; color: var(--text-dim); font-size: 11px; margin: 5px 0 0; }
+.diff-review-notice { position: sticky; left: 0; font-size: 12px; padding: 8px 12px; background: var(--bg-panel); }
+.diff-review-notice.diff-review-success { border-left: 3px solid var(--review-success); background: rgba(34, 197, 94, 0.1); }
+.diff-review-notice.diff-review-error { border-left: 3px solid var(--review-error); background: rgba(239, 68, 68, 0.1); }
+.diff-review-search { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; }
+.diff-review-search input { min-width: 0; flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px; background: var(--bg); }
+.diff-review-list { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.diff-review-list-actions { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; }
+.diff-review-list-actions > button:last-child { margin-left: auto; color: var(--text-muted); }
+
+/* Keep the comment action visible when the code scrolls horizontally. */
+.diff-review-selection { position: sticky; left: 0; display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: fit-content; max-width: 100%; padding: 6px 12px; background: var(--bg-panel); border-block: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-ui); font-size: 11px; line-height: 1.5; }
+.diff-review-selection > span { font-variant-numeric: tabular-nums; }
+.diff-review-selection > button { flex-shrink: 0; }
+.diff-review button.diff-review-dismiss { border: 0; background: transparent; padding: 4px; color: var(--text-muted); }
+
+.diff-review-code { width: 100%; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }
+.diff-review-hunk { min-width: 100%; width: max-content; box-sizing: border-box; padding: 3px 12px; background: var(--bg-panel); color: var(--text-dim); border-block: 1px solid var(--border); font-size: 11px; white-space: pre; }
+.diff-review-row { display: flex; min-width: 100%; width: max-content; box-sizing: border-box; border-left: 3px solid transparent; }
+.diff-review-added { background: var(--review-added); border-left-color: #4ade80; }
+.diff-review-removed { background: var(--review-removed); border-left-color: #f87171; }
+.diff-review:focus-within .diff-review-row.is-cursor { box-shadow: inset 0 1px var(--accent), inset 0 -1px var(--accent); }
+.diff-review-row.is-selected { background: var(--bg-selected); }
+.diff-review-row.is-match code { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+.diff-review-row > .diff-review-gutter { flex: 0 0 42px; min-width: 42px; border: 0; border-right: 1px solid var(--border); border-radius: 0; padding: 0 8px; background: var(--bg-panel); color: var(--text-dim); text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; line-height: inherit; user-select: none; }
+.diff-review-row > .diff-review-gutter:disabled { opacity: 1; }
+.diff-review-row > .diff-review-gutter:hover:not(:disabled) { background: var(--bg-selected); color: var(--text); }
+.diff-review-prefix { flex: 0 0 20px; text-align: center; user-select: none; color: var(--text-dim); }
+.diff-review-added .diff-review-prefix { color: #4ade80; }
+.diff-review-removed .diff-review-prefix { color: #f87171; }
+.diff-review-row code { white-space: pre; padding-right: 12px; }
+
+.diff-review-card,
+.diff-review-editor {
+  position: sticky;
+  left: 0;
+  width: min(640px, calc(100vw - 32px));
+  max-width: 100%;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.diff-review-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 11px; }
+.diff-review-card .diff-review-path { overflow-wrap: anywhere; color: var(--text-muted); font-family: var(--font-mono); }
+.diff-review-card button.diff-review-path { border: 0; background: transparent; padding: 0; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.diff-review-anchor { color: var(--text-dim); }
+.diff-review-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+.diff-review-card-actions { display: flex; gap: 6px; }
+.diff-review-snippet { overflow: auto; max-height: 180px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; }
+.diff-review-editor textarea { display: block; box-sizing: border-box; width: 100%; resize: vertical; min-height: 70px; margin-bottom: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-size: 12px; }
+
+@media (pointer: coarse) {
+  .diff-review button { min-height: 36px; }
+  .diff-review button.diff-review-file-comment,
+  .diff-review button.diff-review-search-toggle { min-width: 36px; }
+  .diff-review-row > .diff-review-gutter { min-height: 28px; }
+  .diff-review-row { min-height: 28px; align-items: stretch; }
+  .diff-review-row code,
+  .diff-review-prefix { line-height: 28px; }
+}
+
+@media (max-width: 600px) {
+  .diff-review-toolbar { padding: 6px; }
+  .diff-review-card,
+  .diff-review-editor { width: calc(100vw - 32px); }
+}
+
+@container diff-review (max-width: 400px) {
+  .diff-review-file-label { display: none; }
+  .diff-review button.diff-review-file-comment { width: 28px; padding: 0; }
+}
+
+@container diff-review (max-width: 560px) {
+  .diff-review-toolbar { flex-wrap: wrap; }
+  .diff-review-navigation { flex-basis: 100%; padding-right: 0; border-right: 0; }
+  .diff-review-tools { flex-wrap: wrap; }
+  .diff-review button.diff-review-send { order: 1; flex-basis: 100%; }
+}
