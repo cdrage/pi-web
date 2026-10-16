@@ -16,7 +16,7 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
     ),
   ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
-    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt") => {
+    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt", draft = null) => {
       const isDelimitedTablePath = (path) => /\\.(csv|tsv)$/i.test(path);
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
@@ -30,6 +30,7 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
 
   assert.equal(render({ ...large, content: "line\n".repeat(999) }, "source"), null);
   assert.equal(render(large, "diff", true), null);
+  assert.equal(render(large, "source", true, false, false, "/tmp/file.txt", { text: "draft" }), null);
   assert.equal(render(large, "source", true, true), null);
   for (const language of ["html", "markdown"]) {
     assert.equal(render({ ...large, language }, "preview"), null);
@@ -91,7 +92,7 @@ test("the source gutter stays pinned only in highlighted views", () => {
     ),
   ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
-    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt") => {
+    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false, filePath = "/tmp/file.txt", draft = null) => {
       const isDelimitedTablePath = (path) => /\.(csv|tsv)$/i.test(path);
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const HTML_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;

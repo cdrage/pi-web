@@ -7,16 +7,17 @@ import { chromium, webkit } from "playwright";
 import { showSidebarFiles } from "./sidebar.mjs";
 
 const HTTP_OK = 200;
+const HTTP_CONFLICT = 409;
 const HTTP_UNAVAILABLE = 503;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MOBILE_MAX_WIDTH = 640;
 const MIN_REVIEW_WIDTH = 300;
 const BROWSER = { all: "all", chromium: "chromium", webkit: "webkit" };
-const TEST_CASE = { all: "all", freshCwd: "fresh-cwd", send: "send" };
+const TEST_CASE = { all: "all", freshCwd: "fresh-cwd", send: "send", edit: "edit" };
 const selectedBrowser = process.env.PI_WEB_E2E_BROWSER ?? BROWSER.all;
 const selectedCase = process.env.PI_WEB_E2E_CASE ?? TEST_CASE.all;
 assert.ok(Object.values(BROWSER).includes(selectedBrowser), "PI_WEB_E2E_BROWSER must be all, chromium, or webkit");
-assert.ok(Object.values(TEST_CASE).includes(selectedCase), "PI_WEB_E2E_CASE must be all, fresh-cwd, or send");
+assert.ok(Object.values(TEST_CASE).includes(selectedCase), "PI_WEB_E2E_CASE must be all, fresh-cwd, send, or edit");
 const base = process.env.E2E_BASE_URL ?? process.env.PI_WEB_E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const artifacts = process.env.PI_WEB_E2E_ARTIFACTS ?? fileURLToPath(new URL("../test-results/code-review/", import.meta.url));
 const cwd = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -66,8 +67,25 @@ index 3333333..4444444 100644
  }
 `;
 
+const EDIT_SECTION = [
+  "export function count(values: number[]) {",
+  "  const total = values?.length ?? 0;",
+  "  return Math.max(total, 0);",
+  "}",
+  "",
+  'export const label = "review";',
+].join("\n") + "\n";
+const EDIT_TAIL = "\n".repeat(13) + [
+  "export function format(value: number) {",
+  "  return value.toFixed(2);",
+  "  // Keep a separate hunk for navigation.",
+  "}",
+].join("\n") + "\n";
+const EDIT_CONTENT = (EDIT_SECTION + EDIT_TAIL).replaceAll("\n", "\r\n");
+
 function fixture() {
   return {
+    editContent: EDIT_CONTENT, editPatch: null, editRevision: 1, editConflict: false, editWrites: [],
     changed: false, clean: false, cleanBeta: false, prompts: [], aborts: [], mutations: [], unknown: [],
     fileNames: [ALPHA, BETA],
     pauseExport: false, exportWaiters: [], onExportStarted: null,
@@ -139,6 +157,23 @@ async function mockApi(context, state) {
       return;
     }
 
+    if (path.startsWith("/api/files/") && url.searchParams.get("type") === "edit") {
+      if (method === "PUT") {
+        const body = request.postDataJSON();
+        state.editWrites.push(body);
+        if (state.editConflict || body.revision !== String(state.editRevision)) {
+          await json({ error: "The file changed on disk. Copy your edits, then reopen the editor." }, HTTP_CONFLICT);
+          return;
+        }
+        state.editContent = body.content;
+        state.editRevision += 1;
+        const expression = body.content.match(/Math.max\(total, \d+\)/)?.[0] ?? "Math.max(total, 0)";
+        state.editPatch = ALPHA_PATCH.replace("Math.max(total, 0)", expression);
+      }
+      await json({ content: state.editContent, revision: String(state.editRevision) });
+      return;
+    }
+
     if (method !== "GET") {
       state.mutations.push({ path, method });
       const validatedCwd = state.freshComposer ? request.postDataJSON()?.cwd : cwd;
@@ -182,7 +217,7 @@ async function mockApi(context, state) {
     }
     if (path === "/api/git/diff") {
       const alpha = url.searchParams.get("path") === join(cwd, ALPHA);
-      const patch = state.changed ? ALPHA_PATCH.replace("Math.max(total, 0)", "Math.max(total, 1)") : ALPHA_PATCH;
+      const patch = state.editPatch ?? (state.changed ? ALPHA_PATCH.replace("Math.max(total, 0)", "Math.max(total, 1)") : ALPHA_PATCH);
       const clean = alpha ? state.clean : state.cleanBeta;
       const diff = clean ? { supported: false }
         : { supported: true, status: "modified", patch: alpha ? patch : BETA_PATCH };
@@ -196,10 +231,11 @@ async function mockApi(context, state) {
     }
     if (path.startsWith("/api/files/")) {
       if (url.searchParams.get("type") === "list") {
-        await json({ entries: [ALPHA, BETA].map((name) => ({ name, isDir: false, size: 200, modified: TIMESTAMP })) });
+        const names = state.syntaxFile ? [ALPHA, BETA, state.syntaxFile] : [ALPHA, BETA];
+        await json({ entries: names.map((name) => ({ name, isDir: false, size: 200, modified: TIMESTAMP })) });
         return;
       }
-      await json({ content: "export const reviewFixture = true;\n", language: "typescript", size: 34, nextOffset: 0, truncated: false });
+      await json({ content: state.editContent, language: state.syntaxLanguage ?? "typescript", size: 34, nextOffset: 0, truncated: false });
       return;
     }
     if (path === "/api/worktrees") {
@@ -369,6 +405,7 @@ async function selectionState(page) {
 async function checkUnboundKeys(page) {
   // Removed bindings must leave the selection and browser key behavior intact.
   await gutter(page, "new", 2).click();
+  await button(page, "Cancel").click();
   const selected = await selectionState(page);
   await page.evaluate(() => {
     window.reviewUnhandledKeys = [];
@@ -453,10 +490,10 @@ async function checkReviewToolbar(page, count) {
 }
 
 async function addLineComment(page) {
-  const selection = review(page).locator(".diff-review-selection");
-  assert.equal(await selection.evaluate((element) => element.previousElementSibling?.getAttribute("data-review-selected")), "true",
-    "The comment action must sit below the selected code");
-  await selection.getByRole("button", { name: "Add comment", exact: true }).click();
+  const editor = review(page).getByRole("textbox", { name: "Review comment", exact: true });
+  await editor.waitFor();
+  assert.equal(await editor.evaluate((element) => document.activeElement === element), true,
+    "A line number click must focus the comment box without another action");
 }
 
 async function checkSuccessStyle(page) {
@@ -485,8 +522,15 @@ function checkCompactExport(text) {
     assert.ok(prompt.includes(item), `The compact export must contain ${item}`);
   }
   assert.equal(prompt.split("\n").filter((line) => /^\d+\. /.test(line)).length, items.length);
-  assert.doesNotMatch(prompt, /Worktree:|old lines|new lines|File:|File comment|Captured diff:|Comment:|```/i,
-    "Current comments must omit verbose metadata and captured-code fences");
+  assert.ok(prompt.includes([
+    "   ```diff",
+    "   -  const total = values.length;",
+    "   -  return total;",
+    "   ```",
+  ].join("\n")), "Comments on removed lines must include the deleted code");
+  assert.equal(prompt.split("```diff").length - 1, 1, "Only the deleted selection needs captured code");
+  assert.doesNotMatch(prompt, /Worktree:|old lines|new lines|File:|File comment|Captured diff:|Comment:/i,
+    "Review exports must omit verbose metadata");
 }
 
 async function checkReview(page, state, label) {
@@ -501,8 +545,12 @@ async function checkReview(page, state, label) {
 
   // Mouse ranges exercise new-side anchors and the complete comment lifecycle.
   await gutter(page, "new", 2).click();
+  const rangeEditor = page.getByRole("textbox", { name: "Review comment", exact: true });
+  await addLineComment(page);
+  await rangeEditor.fill("Keep this range draft.");
   await gutter(page, "new", 3).click({ modifiers: ["Shift"] });
-  await review(page).getByText("Selected 2 lines", { exact: true }).waitFor();
+  assert.equal(await rangeEditor.inputValue(), "Keep this range draft.", "Shift-click must preserve the comment draft");
+  await review(page).locator(".diff-review-card-actions").getByText("2 lines", { exact: true }).waitFor();
   await page.screenshot({ path: join(artifacts, `${label}-selection.png`), fullPage: true });
   await addLineComment(page);
   await saveComment(page, "Review the replacement range.");
@@ -519,7 +567,7 @@ async function checkReview(page, state, label) {
   await commentCount(page, 1);
 
   await gutter(page, "new", 2).press("Enter");
-  await review(page).locator(".diff-review-selection").getByRole("button", { name: "Add comment", exact: true }).press("Enter");
+  await addLineComment(page);
   const editor = page.getByRole("textbox", { name: "Review comment", exact: true });
   await editor.fill("Text: ");
   await editor.press("j");
@@ -696,6 +744,243 @@ async function checkReview(page, state, label) {
   console.log(`PASS: ${label}: mouse ranges, comments, unbound keys, persistence, obsolete comment cleanup, and composer export`);
 }
 
+async function checkFileEditing(page, state, label) {
+  await page.goto(`${base}/?session=${SESSION_ID}`, { waitUntil: "domcontentloaded" });
+  await openFile(page, ALPHA);
+  const panel = page.locator("#file-panel");
+  assert.equal(await review(page).locator(".diff-review-editable").count(), 0, "Diff must be read-only");
+  const sourceMode = panel.getByRole("button", { name: "Source", exact: true });
+  const diffMode = panel.getByRole("button", { name: "Diff", exact: true });
+  const sourceLine = () => panel.locator('.file-source-line[data-line-number="3"] .file-source-line-content');
+  const edit = async () => {
+    if (await sourceMode.getAttribute("aria-pressed") !== "true") {
+      await sourceMode.click();
+    }
+    await sourceLine().click();
+  };
+  const editor = panel.getByRole("textbox", { name: "File content", exact: true });
+  const save = panel.getByRole("button", { name: "Save", exact: true });
+  const back = panel.getByRole("button", { name: "Close editor", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Save changes?", exact: true });
+  const close = () => panel.getByRole("button", { name: `Close ${ALPHA}`, exact: true });
+  const unsaved = () => page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+
+  await edit();
+  await editor.waitFor();
+  assert.equal(await editor.evaluate((element) => Boolean(element.closest(".source-editor"))), true,
+    "The editor must live in Source");
+  const original = EDIT_CONTENT.replaceAll("\r\n", "\n");
+  assert.equal(await editor.inputValue(), original);
+  assert.equal(await editor.evaluate((element) => document.activeElement === element), true);
+  assert.equal(await editor.evaluate((element) => element.selectionStart), original.indexOf("  return"));
+  await panel.locator(".source-editor-highlight .token").filter({ hasText: "export" }).first().waitFor();
+  await panel.locator(".source-editor-highlight .token.builtin").filter({ hasText: "number" }).first().waitFor();
+  const metrics = await panel.locator(".source-editor").evaluate((root) => {
+    const input = root.querySelector("textarea");
+    const layer = root.querySelector(".source-editor-highlight");
+    const properties = ["fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "tabSize", "letterSpacing"];
+    const font = (element) => properties.map((property) => getComputedStyle(element)[property]);
+    return { input: font(input), layer: font(layer), inputX: input.getBoundingClientRect().x, layerX: layer.getBoundingClientRect().x };
+  });
+  assert.deepEqual(metrics.layer, metrics.input, "Colored text must share the caret's font metrics");
+  assert.equal(metrics.layerX, metrics.inputX, "Colored text must start at the caret's left edge");
+  assert.equal(await save.isDisabled(), true);
+  assert.equal(await unsaved(), false);
+  await checkEditorWrap(page, panel, editor, original, label);
+  const draft = original.replace("Math.max(total, 0)", "Math.max(total, 2)");
+  await editor.fill(draft);
+  await panel.locator(".source-editor-highlight .token").filter({ hasText: "2" }).first().waitFor();
+  await panel.getByRole("tab", { name: ALPHA, exact: true }).getByLabel("Unsaved changes", { exact: true }).waitFor();
+  assert.equal(await unsaved(), true, "Dirty drafts register the browser navigation guard");
+
+  // A live update and a tab switch must preserve the local draft.
+  await page.evaluate(() => {
+    for (const source of window.reviewSources) {
+      source.dispatchEvent(new Event("change"));
+    }
+  });
+  assert.equal(await editor.inputValue(), draft);
+  await openFile(page, BETA);
+  await panel.getByRole("tab", { name: ALPHA, exact: true }).click();
+  await editor.waitFor();
+  assert.equal(await editor.inputValue(), draft);
+
+  await page.screenshot({ path: join(artifacts, `${label}-file-editor.png`), fullPage: true });
+  await diffMode.click();
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await sourceMode.getAttribute("aria-pressed"), "true", "Cancel must retain Source and its draft");
+  await close().click();
+  await dialog.waitFor();
+  const bounds = await dialog.boundingBox();
+  assert.ok(Math.abs(bounds.x + bounds.width / 2 - page.viewportSize().width / 2) < 1, "The close dialog must be centered");
+  await page.screenshot({ path: join(artifacts, `${label}-unsaved-dialog.png`), fullPage: true });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await editor.inputValue(), draft);
+  await back.click();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  assert.equal(state.aborts.length, 0, "The unsaved dialog must consume Escape");
+
+  // Save errors preserve the dialog and draft until the user makes another choice.
+  state.editConflict = true;
+  await close().click();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await dialog.getByRole("alert").filter({ hasText: "The file changed on disk." }).waitFor();
+  assert.equal(await editor.inputValue(), draft);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  state.editConflict = false;
+  await editor.press("Control+s");
+  await editor.waitFor({ state: "hidden" });
+  assert.equal(state.editContent, draft.replaceAll("\n", "\r\n"), "Save preserves CRLF and the rest of the file");
+  assert.equal(await unsaved(), false);
+  await sourceLine().filter({ hasText: "Math.max(total, 2)" }).waitFor();
+  await diffMode.click();
+  await review(page).locator("code").filter({ hasText: "Math.max(total, 2)" }).waitFor();
+
+  await edit();
+  const nextDraft = draft.replace("Math.max(total, 2)", "Math.max(total, 3)");
+  await editor.fill(nextDraft);
+  await close().click();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await panel.getByRole("tab", { name: ALPHA, exact: true }).waitFor({ state: "hidden" });
+  assert.equal(state.editContent, nextDraft.replaceAll("\n", "\r\n"));
+
+  await openFile(page, ALPHA);
+  await edit();
+  await editor.fill("discard this draft");
+  const writes = state.editWrites.length;
+  await close().click();
+  await dialog.getByRole("button", { name: "Discard", exact: true }).click();
+  await panel.getByRole("tab", { name: ALPHA, exact: true }).waitFor({ state: "hidden" });
+  assert.equal(state.editWrites.length, writes, "Discard must not write the file");
+  assert.equal(await unsaved(), false);
+
+  // A clean editor returns to the Source view without a close dialog.
+  await openFile(page, ALPHA);
+  await edit();
+  await editor.waitFor();
+  await back.click();
+  await sourceLine().waitFor();
+  assert.equal(await dialog.count(), 0);
+
+  // Source and the editor share the tab's wrap preference.
+  await panel.getByRole("button", { name: "Enable word wrap", exact: true }).click();
+  await edit();
+  await editor.waitFor();
+  assert.equal(await editor.getAttribute("wrap"), "soft");
+  await back.click();
+  const disableWrap = panel.getByRole("button", { name: "Disable word wrap", exact: true });
+  assert.equal(await disableWrap.getAttribute("aria-pressed"), "true");
+  await disableWrap.click();
+  await page.screenshot({ path: join(artifacts, `${label}-file-edit.png`), fullPage: true });
+  console.log(`PASS: ${label}: Source-only edits, save shortcut, CRLF, draft retention, save conflicts, and guarded close`);
+}
+
+async function checkEditorWrap(page, panel, editor, original, label) {
+  const enable = panel.getByRole("button", { name: "Enable word wrap", exact: true });
+  const disable = panel.getByRole("button", { name: "Disable word wrap", exact: true });
+  assert.equal(await enable.count(), 1, "The editor must retain the Source wrap button");
+
+  for (const name of ["Save", "Close editor"]) {
+    const action = panel.getByRole("button", { name, exact: true });
+    assert.equal(await action.locator("svg").count(), 1, `${name} must use a toolbar icon`);
+    assert.equal(await action.textContent(), "", `${name} keeps its label accessible without visible text`);
+  }
+
+  const longLine = `\tconst message = "${"words and spaces ".repeat(30)}${"x".repeat(150)}";`;
+  const content = `${longLine}\n\n${longLine}\nreturn message;\n`;
+  await editor.fill(content);
+  await enable.click();
+  assert.equal(await disable.getAttribute("aria-pressed"), "true");
+  assert.equal(await editor.getAttribute("wrap"), "soft");
+  assert.equal(await editor.inputValue(), content, "Soft wrap must preserve the file text");
+
+  const layout = () => panel.locator(".source-editor").evaluate((root) => {
+    const input = root.querySelector("textarea");
+    const highlight = root.querySelector(".source-editor-highlight");
+    const rows = [...root.querySelectorAll(".source-editor-line")];
+    const numbers = [...root.querySelector(".source-editor-gutter").children];
+    const bounds = (element) => element.getBoundingClientRect();
+    return {
+      overflow: input.scrollWidth - input.clientWidth,
+      clipped: input.scrollHeight - input.clientHeight,
+      heights: rows.map((row) => bounds(row).height),
+      offsets: rows.map((row, index) => bounds(row).y - bounds(numbers[index]).y),
+      layerOffset: bounds(input).y - bounds(highlight).y,
+    };
+  });
+  const checkLayout = async () => {
+    await page.waitForFunction(() => {
+      const root = document.querySelector(".source-editor");
+      const rows = [...root.querySelectorAll(".source-editor-line")];
+      const numbers = [...root.querySelector(".source-editor-gutter").children];
+      return rows.length === numbers.length && rows.every((row, index) =>
+        Math.abs(row.getBoundingClientRect().y - numbers[index].getBoundingClientRect().y) < 1);
+    });
+    const metrics = await layout();
+    assert.ok(metrics.overflow <= 1, "Wrapped input must fit the available width");
+    assert.ok(metrics.clipped <= 1, "Wrapped input must expose every visual line");
+    assert.equal(metrics.layerOffset, 0, "The input and colors must share their first line");
+    assert.ok(metrics.heights[0] > metrics.heights[1], "Long lines must wrap above empty lines");
+    assert.ok(metrics.offsets.every((offset) => Math.abs(offset) < 1), "Line numbers must follow wrapped rows");
+  };
+  await checkLayout();
+
+  // A panel resize must update the wrapped gutter without an edit.
+  await panel.locator(".file-viewer-content").evaluate((element) => { element.style.width = "75%"; });
+  await checkLayout();
+  await panel.locator(".file-viewer-content").evaluate((element) => { element.style.width = ""; });
+  await checkLayout();
+  await page.screenshot({ path: join(artifacts, `${label}-editor-wrap.png`), fullPage: true });
+
+  await disable.click();
+  assert.equal(await editor.getAttribute("wrap"), "off");
+  assert.equal(await editor.inputValue(), content);
+  await editor.fill(original);
+  console.log(`PASS: ${label}: editor icon actions, word wrap, gutter alignment, and resize`);
+}
+
+async function checkSourceSyntax(page, state, label) {
+  const samples = [
+    { name: "review-component.svelte", language: "markup", text: '<script lang="ts">\n  let count: number = 1;\n</script>\n{#if count}<p>{count}</p>{/if}\n', token: "number" },
+    { name: "review-script.py", language: "python", text: 'def title():\n\treturn "hello"\n', token: "return" },
+    { name: "review-config.json", language: "json", text: '{\n  "title": "hello"\n}\n', token: '"title"' },
+  ];
+  const panel = page.locator("#file-panel");
+  const editor = panel.getByRole("textbox", { name: "File content", exact: true });
+  for (const sample of samples) {
+    state.syntaxFile = sample.name;
+    state.syntaxLanguage = sample.language;
+    state.fileNames = [ALPHA, sample.name];
+    state.editContent = sample.text;
+    await page.goto(`${base}/?session=${SESSION_ID}`, { waitUntil: "domcontentloaded" });
+    await openFile(page, sample.name);
+    await panel.getByRole("button", { name: "Source", exact: true }).click();
+    await panel.locator('.file-source-line[data-line-number="2"] .file-source-line-content').click();
+    await editor.waitFor();
+    const tokens = panel.locator(".source-editor-highlight .token");
+    await tokens.filter({ hasText: sample.token }).first().waitFor();
+    const draft = sample.text.replace("1", "2").replace("hello", "world");
+    await editor.fill(draft);
+    assert.equal(await editor.inputValue(), draft);
+    await page.waitForFunction((text) => document.querySelector(".source-editor-highlight")?.textContent === `${text}\n`, draft);
+    await page.screenshot({ path: join(artifacts, `${label}-${sample.language}-editor.png`), fullPage: true });
+    await editor.press("Control+s");
+    await editor.waitFor({ state: "hidden" });
+    assert.equal(state.editContent, draft, `${sample.language} saves its exact text`);
+  }
+  delete state.syntaxFile;
+  delete state.syntaxLanguage;
+  state.fileNames = [ALPHA, BETA];
+  console.log(`PASS: ${label}: Svelte, Python, and JSON colors update with edits and preserve saved text`);
+}
+
 async function checkSendReview(page, state, label) {
   await page.goto(`${base}/?session=${SESSION_ID}`, { waitUntil: "domcontentloaded" });
   await openFile(page, BETA);
@@ -779,10 +1064,19 @@ async function runCase(browser, options, label) {
   page.on("pageerror", (error) => errors.push(error.message));
 
   try {
+    if (selectedCase === TEST_CASE.all || selectedCase === TEST_CASE.edit) {
+      await checkFileEditing(page, state, label);
+      await checkSourceSyntax(page, state, label);
+      state.changed = false;
+      state.editPatch = null;
+      state.editContent = EDIT_CONTENT;
+    }
     if (selectedCase === TEST_CASE.all) {
       await checkReview(page, state, label);
     }
-    await checkSendReview(page, state, label);
+    if (selectedCase !== TEST_CASE.edit) {
+      await checkSendReview(page, state, label);
+    }
     assert.deepEqual(errors, [], "The fixture must produce no browser errors");
   } catch (error) {
     await page.screenshot({ path: join(artifacts, `${label}-failure.png`), fullPage: true }).catch(() => {});
@@ -865,7 +1159,7 @@ assert.equal(ready?.status ?? HTTP_UNAVAILABLE, HTTP_OK, `Start the Pi Web dev s
 if (selectedBrowser !== BROWSER.webkit) {
   const chrome = await chromium.launch();
   try {
-    if (selectedCase !== TEST_CASE.send) {
+    if (selectedCase !== TEST_CASE.send && selectedCase !== TEST_CASE.edit) {
       await runFreshCwd(chrome);
     }
     if (selectedCase !== TEST_CASE.freshCwd) {
@@ -890,7 +1184,7 @@ if (selectedBrowser !== BROWSER.chromium) {
 }
 if (safari) {
   try {
-    if (selectedCase !== TEST_CASE.send) {
+    if (selectedCase !== TEST_CASE.send && selectedCase !== TEST_CASE.edit) {
       await runFreshCwd(safari);
     }
     if (selectedCase !== TEST_CASE.freshCwd) {

@@ -8,6 +8,8 @@ import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
+import { FileEditDialog } from "./FileEditDialog";
+import { onFileSaved, requestFileClose } from "@/lib/file-edit-store";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -579,6 +581,7 @@ export function AppShell() {
 
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
+  useEffect(() => onFileSaved(() => setExplorerRefreshKey((key) => key + 1)), []);
   const [activeFileTabId, setActiveFileTabId] = useState<string | null>(null);
   const fileWorkspaceStatesRef = useRef(new Map<string, ParkedFileWorkspace>());
   // Bumped on every workspace switch. The active viewer reports its state as
@@ -1312,15 +1315,29 @@ export function AppShell() {
       if (fileTabs.length === 0 && remainingAgents.length === 0) setRightPanelOpen(false);
       return;
     }
-    setFileTabs((prev) => {
-      const next = prev.filter((t) => t.id !== tabId);
-      if (next.length === 0 && agentTabs.length === 0) setRightPanelOpen(false);
-      return next;
-    });
-    setActiveFileTabId((cur) => {
-      if (cur !== tabId) return cur;
-      const remaining = fileTabs.filter((t) => t.id !== tabId);
-      return remaining.at(-1)?.id ?? lastAgentTabId(agentTabs);
+    const tab = fileTabs.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+    const generation = fileWorkspaceGenerationRef.current;
+    requestFileClose(tab.filePath, () => {
+      if (generation !== fileWorkspaceGenerationRef.current) {
+        return;
+      }
+      setFileTabs((prev) => {
+        const next = prev.filter((t) => t.id !== tabId);
+        if (next.length === 0 && agentTabs.length === 0) {
+          setRightPanelOpen(false);
+        }
+        return next;
+      });
+      setActiveFileTabId((cur) => {
+        if (cur !== tabId) {
+          return cur;
+        }
+        const remaining = fileTabs.filter((t) => t.id !== tabId);
+        return remaining.at(-1)?.id ?? lastAgentTabId(agentTabs);
+      });
     });
   }, [fileTabs, agentTabs]);
 
@@ -3008,6 +3025,7 @@ export function AppShell() {
         onProjectTrustChanged={handleProjectTrustChanged}
       />
     )}
+    <FileEditDialog />
     {/* After Settings, so it opens above it (z-index 1100 over 1000) when Settings › MCP asks for it. */}
     {projectTrustDialogOpen && projectTrustCwd && (
       <ProjectTrustDialog

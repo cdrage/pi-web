@@ -34,14 +34,48 @@ import { hasParentDirectorySegment } from "@/lib/path-security";
 import { readTextPreviewChunk } from "@/lib/text-preview";
 import { registerFileWatch } from "@/lib/file-watch-registry";
 import { pageStreamLabel, registerPageStream } from "@/lib/page-stream-registry";
+import { FileEditError, readFileEdit, saveFileEdit } from "@/lib/file-edit";
+import { FILE_EDIT_MAX_BYTES } from "@/lib/file-edit-types";
+import { readBoundedJson } from "@/lib/bounded-json";
 
-const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch"] as const;
+const FILE_REQUEST_TYPES = ["list", "read", "download", "meta", "preview", "watch", "edit"] as const;
 type FileRequestType = typeof FILE_REQUEST_TYPES[number];
 const FILE_REQUEST_TYPE_SET = new Set<string>(FILE_REQUEST_TYPES);
 const MAX_UPLOAD_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024;
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_UPLOAD_REQUEST_BYTES = MAX_UPLOAD_TOTAL_BYTES + 1024 * 1024;
+// A JSON escape can require six bytes per source byte, plus object metadata.
+const MAX_EDIT_REQUEST_BYTES = FILE_EDIT_MAX_BYTES * 6 + 1024;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_FORBIDDEN = 403;
+const HTTP_TOO_LARGE = 413;
+const HTTP_UNSUPPORTED_MEDIA = 415;
+const HTTP_SERVER_ERROR = 500;
+
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: HTTP_FORBIDDEN });
+  }
+  if (!hasJsonContentType(request)) {
+    return NextResponse.json({ error: "Content-Type must be application/json" }, { status: HTTP_UNSUPPORTED_MEDIA });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const body = await readBoundedJson(request, MAX_EDIT_REQUEST_BYTES) as { content?: unknown; revision?: unknown } | null;
+    if (typeof body?.content !== "string" || typeof body.revision !== "string" || !body.revision) {
+      return NextResponse.json({ error: "content and revision are required" }, { status: HTTP_BAD_REQUEST });
+    }
+    const snapshot = saveFileEdit(filePathFromApiSegments(segments), await getAllowedFileRoots(), body.content, body.revision);
+    return NextResponse.json(snapshot, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    const status = error instanceof FileEditError ? error.status
+      : error instanceof RequestBodyTooLargeError ? HTTP_TOO_LARGE
+      : error instanceof SyntaxError ? HTTP_BAD_REQUEST : HTTP_SERVER_ERROR;
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Cannot save the file" }, { status });
+  }
+}
 
 // The source view highlights every language here but text, pdf and word with
 // the Prism grammar of that name (refractor/all); a name it lacks renders
@@ -472,6 +506,17 @@ export async function GET(
     const sessionId = request.nextUrl.searchParams.get("sessionId");
 
     const allowedRoots = await getAllowedFileRoots();
+    // Editing never inherits a transcript link's read-only access grant.
+    if (type === "edit") {
+      try {
+        return NextResponse.json(readFileEdit(filePath, allowedRoots), { headers: { "Cache-Control": "no-store" } });
+      } catch (error) {
+        if (error instanceof FileEditError) {
+          return NextResponse.json({ error: error.message }, { status: error.status });
+        }
+        throw error;
+      }
+    }
     const allowedByRoot = isFilePathAllowed(filePath, allowedRoots);
     const allowedBySessionReference =
       !allowedByRoot &&

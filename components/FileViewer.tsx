@@ -31,6 +31,9 @@ import { DelimitedTable } from "./DelimitedTable";
 import { isDelimitedTablePath } from "@/lib/delimited-table";
 import { FrontmatterCard } from "./FrontmatterCard";
 import { DiffReview } from "./DiffReview";
+import { FileEditor, FileEditActions } from "./FileEditor";
+import { useFileDraft } from "@/hooks/useFileDraft";
+import { onFileSaved, requestFileClose, startFileEdit } from "@/lib/file-edit-store";
 import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
@@ -1052,6 +1055,9 @@ function TextFileViewer({
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
+  const draft = useFileDraft(filePath);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [gitDiffLoading, setGitDiffLoading] = useState(false);
   const [gitDiffResolved, setGitDiffResolved] = useState(false);
@@ -1178,6 +1184,25 @@ function TextFileViewer({
       }
     }
   }, [cwd]);
+
+  useEffect(() => onFileSaved((savedPath) => {
+    if (savedPath === filePath) {
+      void fetchContent(filePath);
+      void fetchGitDiff(filePath);
+    }
+  }), [filePath, fetchContent, fetchGitDiff]);
+
+  async function editFile(line = 1) {
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      await startFileEdit(filePath, line);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : t("files.editor.loadError"));
+    } finally {
+      setEditLoading(false);
+    }
+  }
 
   // Reset and load the file itself when its identity changes. Live watching is
   // managed separately so pausing it never clears the displayed content.
@@ -1348,10 +1373,10 @@ function TextFileViewer({
   const hasPreview = isDelimitedTable || (isHtml
     ? !!data && (!data.truncated || data.size <= HTML_PREVIEW_MAX_BYTES)
     : isMarkdown && !data?.truncated);
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const effectiveDisplayMode = draft ? "source" : isDeletedDiff ? "diff" : displayMode;
   // A partly loaded HTML file previews whole, so Load more belongs to its source view.
-  const showLoadMore = !!data?.truncated && !(isHtml && effectiveDisplayMode === "preview");
-  const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
+  const showLoadMore = !draft && !!data?.truncated && !(isHtml && effectiveDisplayMode === "preview");
+  const useLightweightSource = !draft && sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
     && !(effectiveDisplayMode === "diff" && hasGitDiff)
     && !(effectiveDisplayMode === "preview" && hasPreview);
   // react-syntax-highlighter rebuilds every token element on each render, which
@@ -1505,7 +1530,7 @@ function TextFileViewer({
     );
   }
 
-  if (error && !isDeletedDiff && displayMode !== "diff") {
+  if (error && !draft && !isDeletedDiff && displayMode !== "diff") {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
         {error}
@@ -1513,12 +1538,12 @@ function TextFileViewer({
     );
   }
 
-  if (!data && !isDeletedDiff && displayMode !== "diff") return null;
+  if (!data && !draft && !isDeletedDiff && displayMode !== "diff") return null;
 
   const content = viewerContent;
   const markdownDirectory = getFileDirectory(filePath);
   const lines = sourceLines;
-  const displayModes: DisplayMode[] = isDeletedDiff
+  const displayModes: DisplayMode[] = isDeletedDiff && !draft
     ? ["diff"]
     : [
         "source",
@@ -1575,7 +1600,7 @@ function TextFileViewer({
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => updateDisplayMode(mode)}
+                    onClick={() => requestFileClose(filePath, () => updateDisplayMode(mode))}
                     title={mode === "diff" ? t("i18n.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
@@ -1592,6 +1617,7 @@ function TextFileViewer({
           )}
 
           <div className="file-viewer-actions">
+            {draft ? <FileEditActions filePath={filePath} onClose={() => contentRef.current?.focus()} /> : <>
             {(onAtMention || onMentionLines) && (
               <button
                 type="button"
@@ -1618,6 +1644,7 @@ function TextFileViewer({
                 <MentionIcon />
               </button>
             )}
+            </>}
             {effectiveDisplayMode === "source" && !isBinary && (
               <>
                 <button
@@ -1643,7 +1670,7 @@ function TextFileViewer({
             )}
           </div>
 
-          {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
+          {!draft && !isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
         </div>
       </div>
 
@@ -1677,17 +1704,36 @@ function TextFileViewer({
         </div>
       )}
 
+      {(editLoading || editError || draft?.error) && <p className="file-editor-error" role={editError || draft?.error ? "alert" : "status"}>{draft?.error ?? editError ?? t("i18n.loading")}</p>}
+
       {/* Content area */}
       <div
         ref={contentRef}
         className="file-viewer-content"
+        tabIndex={effectiveDisplayMode === "source" ? 0 : undefined}
+        title={effectiveDisplayMode === "source" && !draft ? t("files.editor.editHint") : undefined}
+        onClick={(event) => {
+          if (effectiveDisplayMode !== "source" || draft || editLoading || !data || error || window.getSelection()?.isCollapsed === false) {
+            return;
+          }
+          const line = closestSourceLine(event.target as Node);
+          if (line && (event.target as Element).closest(".file-source-line-content")) {
+            void editFile(Number(line.dataset.lineNumber));
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.target === event.currentTarget && effectiveDisplayMode === "source" && !draft && data && !error && event.key === "Enter") {
+            event.preventDefault();
+            void editFile();
+          }
+        }}
         onScroll={(event) => {
           viewerStateRef.current.scrollTop = event.currentTarget.scrollTop;
           viewerStateRef.current.scrollLeft = event.currentTarget.scrollLeft;
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: showLoadMore ? 48 : undefined }}
       >
-        {effectiveDisplayMode === "diff" && hasReviewView ? (
+        {draft ? <FileEditor filePath={filePath} language={language} wrapLines={wrapLines} onClose={() => contentRef.current?.focus()} /> : effectiveDisplayMode === "diff" && hasReviewView ? (
           <DiffReview
             patch={gitDiff?.patch ?? ""}
             filePath={filePath}

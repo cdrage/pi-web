@@ -76,6 +76,7 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
   const rootRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<number, HTMLDivElement>());
   const searchRef = useRef<HTMLInputElement>(null);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
   const [cursor, setCursor] = useState(positions[0] ?? 0);
   const [anchor, setAnchor] = useState<number | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
@@ -130,6 +131,12 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
     }
   }, [showSearch]);
 
+  useEffect(() => {
+    if (editor) {
+      commentRef.current?.focus({ preventScroll: true });
+    }
+  }, [editor]);
+
   // Close the summary after the last comment disappears in this tab or another tab.
   useEffect(() => {
     if (!commentCount) {
@@ -151,12 +158,21 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
     rowRefs.current.get(index)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
-  function selectLine(index: number, event: MouseEvent<HTMLButtonElement>) {
+  function selectLine(index: number, event: Pick<MouseEvent, "shiftKey">) {
+    if (!review.ready) {
+      return;
+    }
     const extend = event.shiftKey && lines[anchor ?? cursor]?.hunk === lines[index].hunk;
-    setAnchor(extend ? anchor ?? cursor : index);
+    const nextAnchor = extend ? anchor ?? cursor : index;
+    const target = buildReviewTarget(filePath, path, patch, lines, nextAnchor, index);
+    if (!target) {
+      return;
+    }
+    setAnchor(nextAnchor);
     setCursor(index);
     setShowList(false);
-    focusDiff();
+    // A Shift-click extends the same draft instead of discarding its text.
+    openEditor(target, Math.max(nextAnchor, index), undefined, extend && !editor?.id ? body : "");
   }
 
   function openEditor(target: ReviewTarget, index: number | null, id?: string, text = "", inList = false) {
@@ -165,15 +181,12 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
     setNotice(null);
   }
 
-  function addComment(wholeFile = false) {
+  function addFileComment() {
     if (!review.ready) {
       return;
     }
-    const target = wholeFile ? fileReviewTarget(filePath, path, patch) : buildReviewTarget(filePath, path, patch, lines, start, end);
-    if (target) {
-      setShowList(false);
-      openEditor(target, wholeFile ? null : end);
-    }
+    setShowList(false);
+    openEditor(fileReviewTarget(filePath, path, patch), null);
   }
 
   function toggleList() {
@@ -288,6 +301,7 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
     return (
       <form className="diff-review-editor" onSubmit={(event) => { event.preventDefault(); saveComment(); }}>
         <textarea
+          ref={commentRef}
           autoFocus
           value={body}
           onChange={(event) => setBody(event.target.value)}
@@ -304,6 +318,7 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
         <div className="diff-review-card-actions">
           <button type="submit" disabled={!body.trim() || !review.ready}>{t("review.save")}</button>
           <button type="button" onClick={closeEditor}>{t("review.cancel")}</button>
+          {editor && !editor.id && editor.index !== null && anchor !== null && <span className="diff-review-selection-label">{selectedCount === 1 ? t("review.oneLine") : t("review.selection", { count: selectedCount })}</span>}
         </div>
       </form>
     );
@@ -365,7 +380,7 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
           </button>
         </div>}
         <div className="diff-review-tools">
-          <button type="button" className="diff-review-file-comment" onClick={() => addComment(true)} disabled={!review.ready} aria-label={t("review.fileComment")} title={t("review.fileComment")}>
+          <button type="button" className="diff-review-file-comment" onClick={addFileComment} disabled={!review.ready} aria-label={t("review.fileComment")} title={t("review.fileComment")}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM12 7v6m-3-3h6" />
             </svg>
@@ -440,11 +455,6 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
               <span className="diff-review-prefix" aria-hidden="true">{line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}</span>
               <code>{line.text || "\u00a0"}</code>
             </div>
-            {anchor !== null && index === end && !editor && <div className="diff-review-selection" role="group" aria-label={t("review.selection", { count: selectedCount })}>
-              <span>{selectedCount === 1 ? t("review.oneLine") : t("review.selection", { count: selectedCount })}</span>
-              <button type="button" onClick={() => addComment()} disabled={!review.ready}>{t("review.comment")}</button>
-              <button type="button" className="diff-review-dismiss" onClick={() => { setAnchor(null); focusDiff(); }} aria-label={t("review.clearSelection")} title={t("review.clearSelection")}>×</button>
-            </div>}
             {!showList && fileComments.filter((comment) => commentIndex(comment) === index).map((comment) => renderComment(comment))}
             {editor && editor.index === index && !editor.id && renderEditor()}
           </Fragment>;

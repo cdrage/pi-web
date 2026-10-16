@@ -1,0 +1,36 @@
+.source-editor { display: flex; width: max-content; min-width: 100%; min-height: 100%; background: var(--bg); font: 13px/20.8px var(--font-mono); font-weight: var(--font-mono-weight); tab-size: 4; }
+.source-editor.is-wrapped { width: 100%; }
+.source-editor-gutter { position: sticky; left: 0; z-index: 1; flex: 0 0 48px; box-sizing: border-box; margin: 0; padding: 0 10px; border-right: 1px solid var(--border); background: var(--bg-panel); color: var(--text-dim); font: 11px/20.8px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; user-select: none; }
+.source-editor-gutter > span, .source-editor-line { display: block; }
+.source-editor-code { display: grid; flex: 1; min-width: 0; white-space: pre; }
+.source-editor.is-wrapped .source-editor-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-editor-highlight, .source-editor textarea { grid-area: 1 / 1; }
+.source-editor-highlight { min-width: 0; pointer-events: none; user-select: none; }
+/* Token colors must not change glyph widths relative to the native caret. */
+.source-editor-highlight span { font-style: normal !important; font-weight: inherit !important; }
+.source-editor textarea { display: block; box-sizing: border-box; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; resize: none; outline: none; overflow: hidden; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--text); font: inherit; line-height: inherit; tab-size: inherit; white-space: inherit; overflow-wrap: inherit; }
+.source-editor textarea::selection { background: var(--accent); color: var(--accent-contrast); -webkit-text-fill-color: var(--accent-contrast); }
+.source-editor textarea:focus-visible { outline: none; }
+.file-editor-actions { display: flex; align-items: center; gap: 6px; }
+.file-editor-actions > span { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+/* Match the mobile input minimum so that colored text follows the caret. */
+@media (max-width: 640px) {
+  .source-editor { font-size: 16px; }
+}
+@media (max-width: 600px) {
+  .file-editor-actions > span { display: none; }
+}
+.file-edit-dialog button { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; background: var(--bg-panel); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.file-edit-dialog button:hover { background: var(--bg-hover); }
+.file-edit-dialog button:disabled { opacity: 0.5; cursor: default; }
+.file-edit-dialog button:focus-visible { outline: 2px solid var(--accent); }
+.file-editor-error { margin: 0; padding: 10px 12px; color: var(--text); border-left: 3px solid var(--accent); font-size: 12px; overflow-wrap: anywhere; }
+.file-edit-dialog { width: min(420px, calc(100vw - 32px)); margin: auto; box-sizing: border-box; padding: 20px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-panel); color: var(--text); box-shadow: 0 12px 40px #0004; }
+.file-edit-dialog::backdrop { background: #0006; }
+.file-edit-dialog h2 { margin: 0 0 12px; font-size: 16px; }
+.file-edit-dialog p { font-size: 13px; overflow-wrap: anywhere; }
+.file-edit-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.file-edit-dialog .file-editor-save { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+@media (pointer: coarse) {
+  .file-edit-dialog button { min-height: 44px; }
+}

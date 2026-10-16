@@ -76,12 +76,6 @@
 .diff-review-list-actions { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; }
 .diff-review-list-actions > button:last-child { margin-left: auto; color: var(--text-muted); }
 
-/* Keep the comment action visible when the code scrolls horizontally. */
-.diff-review-selection { position: sticky; left: 0; display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: fit-content; max-width: 100%; padding: 6px 12px; background: var(--bg-panel); border-block: 1px solid var(--border); color: var(--text-muted); font-family: var(--font-ui); font-size: 11px; line-height: 1.5; }
-.diff-review-selection > span { font-variant-numeric: tabular-nums; }
-.diff-review-selection > button { flex-shrink: 0; }
-.diff-review button.diff-review-dismiss { border: 0; background: transparent; padding: 4px; color: var(--text-muted); }
-
 .diff-review-code { width: 100%; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }
 .diff-review-hunk { min-width: 100%; width: max-content; box-sizing: border-box; padding: 3px 12px; background: var(--bg-panel); color: var(--text-dim); border-block: 1px solid var(--border); font-size: 11px; white-space: pre; }
 .diff-review-row { display: flex; min-width: 100%; width: max-content; box-sizing: border-box; border-left: 3px solid transparent; }
@@ -121,6 +115,8 @@
 .diff-review-anchor { color: var(--text-dim); }
 .diff-review-body { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
 .diff-review-card-actions { display: flex; gap: 6px; }
+.diff-review-editor .diff-review-card-actions { align-items: center; flex-wrap: wrap; }
+.diff-review-selection-label { margin-left: auto; color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .diff-review-snippet { overflow: auto; max-height: 180px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-family: var(--font-mono); font-size: 11px; }
 .diff-review-editor textarea { display: block; box-sizing: border-box; width: 100%; resize: vertical; min-height: 70px; margin-bottom: 8px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); font-size: 12px; }
 

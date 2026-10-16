@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { dirtyFilePaths, subscribeFileEdits } from "@/lib/file-edit-store";
 import { getFileIcon } from "./FileIcons";
 import { useI18n } from "@/hooks/useI18n";
 import type { FileViewerDisplayMode, FileViewerState } from "@/lib/file-viewer-state";
@@ -26,10 +27,14 @@ interface Props {
   onCloseTab: (id: string) => void;
 }
 
+const serverDirtyPaths = () => "[]";
+
 export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
   const { t } = useI18n();
   const [hoveredClose, setHoveredClose] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const dirtyPaths = useSyncExternalStore(subscribeFileEdits, dirtyFilePaths, serverDirtyPaths);
+  const dirtyFiles = new Set<string>(JSON.parse(dirtyPaths));
 
   // The strip has no scrollbar (globals.css), so a vertical wheel scrolls it
   // sideways. Non-passive: the page must not scroll as well.
@@ -148,6 +153,7 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab }: Props) {
             >
               {tab.label}
             </span>
+            {!tab.kind && dirtyFiles.has(tab.filePath) && <span aria-label={t("files.editor.unsaved")} title={t("files.editor.unsaved")} style={{ color: "var(--accent)" }}>●</span>}
             <button
               disabled={tab.closing}
               onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}

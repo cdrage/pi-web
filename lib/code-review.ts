@@ -37,6 +37,7 @@ const HASH_PRIME = 0x01000193;
 const HEX_RADIX = 16;
 const HASH_HEX_LENGTH = 8;
 const MIN_INLINE_LENGTH = 1;
+const MIN_FENCE_LENGTH = 3;
 const REVIEW_PROMPT_HEADER = "Address these comments:";
 const LINE_PREFIX = { context: " ", removed: "-", added: "+" } as const;
 
@@ -189,6 +190,17 @@ function targetAnchor(target: ReviewTarget, cwd: string): string {
   return current ?? inlineCode(path);
 }
 
+function deletedCode(target: ReviewTarget, indent: string): string {
+  if (target.oldStart === null || !target.code) {
+    return "";
+  }
+
+  // Deleted lines are absent from the working file, so the prompt carries them.
+  const fence = codeMarker(target.code, MIN_FENCE_LENGTH);
+  const code = target.code.split("\n").map((line) => `${indent}${line}`).join("\n");
+  return `\n\n${indent}${fence}diff\n${code}\n${indent}${fence}`;
+}
+
 export function formatReview(state: ReviewState, currentPatches: Record<string, string | null>, cwd: string): string {
   const items: string[] = [];
   for (const comment of state.comments) {
@@ -198,7 +210,9 @@ export function formatReview(state: ReviewState, currentPatches: Record<string, 
     }
 
     const body = comment.body.trim().replace(/[\r\n]+/g, " ");
-    items.push(`${items.length + 1}. ${targetAnchor(target, cwd)} - ${body}`);
+    const prefix = `${items.length + 1}. `;
+    const code = deletedCode(target, " ".repeat(prefix.length));
+    items.push(`${prefix}${targetAnchor(target, cwd)} - ${body}${code}`);
   }
 
   return items.length ? `${REVIEW_PROMPT_HEADER}\n\n${items.join("\n")}` : "";

@@ -15,8 +15,9 @@ export function prismLanguagesLoaded(): boolean {
 
 /** Loads every Prism language once; a failed chunk load may be retried. */
 export function loadPrismLanguages(): Promise<void> {
-  loading ??= import("refractor/all").then(
-    () => {
+  loading ??= Promise.all([import("refractor/all"), import("./svelte-syntax")]).then(
+    ([{ refractor }, { default: svelte }]) => {
+      refractor.register(svelte);
       loaded = true;
     },
     (error: unknown) => {

@@ -37,6 +37,9 @@
 ## Source view languages
 - `/api/files ?type=read` names a file's language by its extension (`EXT_TO_LANGUAGE` in the route). `FileViewer` hands it to Prism as is, and a name Prism lacks renders plain with no error, so every value but `text`, `pdf` and `word` must be a language `refractor/all` registers (`app/api/files/language-route.test.mjs`). `html` and `markdown` also turn on Preview and make it the default, so a template that is not a page (`.vue`, `.svelte`, `.astro`) takes `markup`. `.m` stays `text`: Objective-C and MATLAB both use it widely, and either grammar miscolors the other (MATLAB's `%` comments come out as operators); `.mm` is Objective-C++ only. `.conf` stays `text` as well: nginx, Apache and tmux configs are not INI (`.cfg` and `.ini` are). Past 1,000 loaded lines the source view is not highlighted at all (`SOURCE_HIGHLIGHT_MAX_LINES`, #469).
 - A file with no media or document preview whose first 8000 bytes hold a NUL (git's test; a UTF-16 byte order mark exempts it) answers `binary: true` with no content (`readTextPreviewChunk()`, first chunk only), and the viewer shows a notice with a Download button instead of decoded bytes (#1401). Invalid UTF-8 alone stays text, so Latin-1 files and unfamiliar extensions read as before. Opening such a file never downloads it by itself.
+- `FileEditor` keeps a native textarea above a Prism layer. Both layers share font metrics and one scroll area.
+  `FileViewer` passes the API language. The editor uses `lib/svelte-syntax.ts` for Svelte scripts and template expressions.
+  The lazy loader registers that grammar after `refractor/all`. Drafts above 1,000 lines or 100,000 characters use plain text.
 
 ## CSV/TSV files open as a table
 - `.csv` / `.tsv` (matched by extension, `isDelimitedTablePath()`) open in `FileViewer`'s Preview mode as `components/DelimitedTable.tsx`, the way markdown and HTML open rendered; Source stays one click away and a restored choice wins. No server change: `/api/files ?type=read` still answers `language: "text"` for them.
@@ -45,21 +48,43 @@
 - Large files arrive in 256 KB chunks with "Load more". The table shows a loaded prefix too (`complete: false`): its last record is dropped unless a line break outside quotes ends it, so a record cut mid-field never shows; it appears once the next chunk loads. Markdown and HTML keep their preview off while truncated.
 - Rows have one fixed height and only those around the viewport are rendered (`visibleRowRange()`, the SessionTree approach; no virtualization library). The table scrolls inside the viewer's own content box (`scrollRef`), so its scroll position is saved and restored like the source view's; it reads the box in a passive effect because the parent's ref is not attached yet in the child's layout effects. Column widths come from up to 500 sampled rows, clamped to 64–420 px; a cell ellipsizes and its full value is its tooltip. Gutter and header use `--bg-panel`, opaque, so columns scrolling under the sticky strips never show through.
 
+## Edits in Source
+
+- A click on Source text opens the file editor at that line. Save and Close editor stay in the file toolbar.
+- Save and Close editor use the viewer's icon buttons, with accessible labels and tooltips.
+- The Source wrap button also controls the editor. Soft wrap preserves file text and the tab's wrap preference.
+- Each gutter number follows its logical line's visual height. A resize observer updates those heights after panel or font changes.
+- `lib/file-edit-store.ts` keeps drafts by absolute path for the page lifetime. Tab switches, workspace switches, and panel hides preserve drafts.
+- Dirty tabs show a dot. Tab close, mode changes, and Close editor use one Save, Discard, Cancel dialog.
+- `FileEditDialog` uses a native modal for focus containment. Browser reload and navigation use the native unsaved-changes prompt.
+- The browser cannot save during unload. The user must cancel navigation and save through the editor.
+- Save refreshes the source, patch, review catalog, and explorer. A failed save preserves the draft and keeps the close dialog open.
+- `GET /api/files/<path>?type=edit` returns complete UTF-8 text and a SHA-256 revision. `PUT` requires that revision and the new content.
+- Edit reads and writes use allowed roots. Session references grant read-only access and never authorize edits.
+- `lib/file-edit.ts` refuses symbolic files, nonregular files, invalid UTF-8, NUL bytes, and files above 1 MiB.
+- Save stages a complete replacement beside the file and preserves its permission bits. It checks authorization and content again before rename.
+- A revision conflict preserves the external file and the draft. No overwrite action bypasses that conflict.
+- The editor uses the complete file with a gutter of line numbers. Diff stays read-only and supports review comments.
+- The editor normalizes line breaks for the textarea. Save restores the original line ending style, such as CRLF.
+
 ## Code review drafts
 
 - The Diff tab uses `components/DiffReview.tsx`. It supports comments on lines, ranges, and files.
 - Previous and Next use the changed-file order from `useCodeReview`. Each button stops at its list boundary.
 - The toolbar shows a file-comment action and search. Saved comments reveal the comment count and chat export.
-- Line selection reveals an inline comment action below the range. Copy and clear stay in the comments panel.
+- A line number click opens the comment box and moves focus there. Shift-click extends the range and preserves its text. Copy and clear stay in the comments panel.
+- The selection count sits beside the comment actions as muted text. The textarea starts at the top of the editor.
 - Reviewed marks from older drafts stay in storage. The interface no longer exposes that flag.
 - `hooks/useCodeReview.ts` connects the review store to the existing Git APIs through `lib/code-review-client.ts`. File access rules stay at those APIs.
 - `lib/code-review-store.ts` saves drafts in browser localStorage per repository root. Worktrees have separate roots. Drafts survive file switches and page reloads.
 - Each comment keeps its original code, old and new line ranges, and patch identity. A changed or absent patch removes its saved comments.
 - A live patch update clears the selection and closes the comment editor. Comments on unchanged files remain in the draft.
-- Export reads fresh patches for every comment. A compact numbered prompt uses file and line references. Deleted lines carry an `OLD` label.
+- Export reads fresh patches for every comment. A compact numbered prompt uses file and line references.
+- Selections with deleted lines include their captured diff below the `OLD` anchor. Current-only selections keep the compact format.
+- Captured code uses a fence longer than its embedded backticks. Its indentation follows the numbered item, including two-digit numbers.
 - Export discards obsolete comments before it formats the prompt. Failed diff requests preserve saved comments.
 - The chat export uses paths relative to the destination's cwd, or absolute paths outside it.
-- Mouse clicks select lines. Shift-click selects a range within one hunk. A local Escape consumes the event before the global agent-stop handler.
+- Line number clicks select lines. Shift-click selects a range within one hunk. A local Escape consumes the event before the global agent-stop handler.
 
 ## Web password throttling
 - `lib/auth-throttle.ts` is deliberately global, not per-IP (its header says why). Failures double the delay (1 s → 60 s cap) for everyone; a success or 5 idle minutes resets it. The reset window must stay longer than the max delay, or waiting out one block restarts the burst.
