@@ -1,8 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { vs, vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import type { useCodeReview } from "@/hooks/useCodeReview";
 import { useI18n } from "@/hooks/useI18n";
+import { usePrismLanguages } from "@/hooks/usePrismLanguages";
+import { useTheme } from "@/hooks/useTheme";
 import {
   buildReviewTarget,
   commentOutdated,
@@ -13,14 +16,19 @@ import {
   type ReviewTarget,
 } from "@/lib/code-review";
 import { getRelativeFilePath } from "@/lib/file-paths";
+import { getLanguage } from "@/lib/file-language";
+import { getFileExt } from "@/lib/file-types";
+import { highlightReviewLines } from "@/lib/review-syntax";
 import "./DiffReview.css";
 
 interface Props {
   patch: string;
   filePath: string;
+  wrapLines: boolean;
   review: ReturnType<typeof useCodeReview>;
   onAddReview?: (loadPrompt: (cwd?: string) => Promise<string>, send?: boolean) => Promise<boolean>;
   onOpenDiff?: (filePath: string) => void;
+  onEditLine?: (line: number) => void;
 }
 
 interface EditorState {
@@ -64,9 +72,24 @@ function ReviewCard({ comment, showCode, onEdit, onDelete, onOpen }: {
   );
 }
 
-export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }: Props) {
+export function DiffReview({ patch, filePath, wrapLines, review, onAddReview, onOpenDiff, onEditLine }: Props) {
   const { t } = useI18n();
+  const { isDark } = useTheme();
   const lines = useMemo(() => parseReviewPatch(patch), [patch]);
+  const language = getFileExt(filePath) === "svelte" ? "svelte" : getLanguage(filePath);
+  const prismReady = usePrismLanguages(lines.length > 0 && language !== "text");
+  const tokens = useMemo(() => highlightReviewLines(lines, prismReady ? language : "text"), [lines, language, prismReady]);
+  // Selection and comment edits reuse the token elements instead of parsing again.
+  const highlighted = useMemo(() => {
+    const theme = isDark ? vscDarkPlus : vs;
+    return lines.map((line, index) => tokens.get(index)?.map((token, part) => {
+      if (!token.classes.length) {
+        return token.text;
+      }
+      const style = token.classes.reduce<CSSProperties>((value, name) => ({ ...value, ...theme[name] }), {});
+      return <span key={part} className={[...new Set(token.classes)].join(" ")} style={style}>{token.text}</span>;
+    }) ?? line.text);
+  }, [lines, tokens, isDark]);
   const positions = useMemo(() => lines.flatMap((line, index) => line.type === "hunk" ? [] : [index]), [lines]);
   const fingerprint = useMemo(() => patchId(patch), [patch]);
   const path = getRelativeFilePath(filePath, review.cwd);
@@ -343,7 +366,7 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
   return (
     <div
       ref={rootRef}
-      className="diff-review"
+      className={wrapLines ? "diff-review is-wrapped" : "diff-review"}
       tabIndex={0}
       aria-label={t("review.title")}
       onKeyDownCapture={handleEscape}
@@ -448,12 +471,25 @@ export function DiffReview({ patch, filePath, review, onAddReview, onOpenDiff }:
               data-review-selected={selected ? "true" : undefined}
               data-review-cursor={cursor === index ? "true" : undefined}
             >
+              {onEditLine && <span className="diff-review-edit-gutter">
+                {line.newLine !== null && <button
+                  type="button"
+                  className="diff-review-edit-line"
+                  aria-label={t("files.editor.editLine", { line: line.newLine })}
+                  title={t("files.editor.editLine", { line: line.newLine })}
+                  onClick={() => { if (line.newLine !== null) { onEditLine(line.newLine); } }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m16 3 5 5M3 21l5-1L21 7a2 2 0 0 0-5-5L3 15v6Z" />
+                  </svg>
+                </button>}
+              </span>}
               {(["old", "new"] as const).map((side) => {
                 const number = side === "old" ? line.oldLine : line.newLine;
                 return <button key={side} type="button" className="diff-review-gutter" tabIndex={side === "new" || line.newLine === null ? 0 : -1} disabled={number === null} data-review-index={index} data-review-side={side} aria-label={number === null ? t(`review.${side}`) : t("review.selectLine", { line: number })} title={t(`review.${side}`)} onClick={(event) => selectLine(index, event)}>{number ?? ""}</button>;
               })}
               <span className="diff-review-prefix" aria-hidden="true">{line.type === "added" ? "+" : line.type === "removed" ? "-" : " "}</span>
-              <code>{line.text || "\u00a0"}</code>
+              <code>{line.text ? highlighted[index] : "\u00a0"}</code>
             </div>
             {!showList && fileComments.filter((comment) => commentIndex(comment) === index).map((comment) => renderComment(comment))}
             {editor && editor.index === index && !editor.id && renderEditor()}

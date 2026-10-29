@@ -21,8 +21,8 @@ const { GET } = await jiti.import("./[...path]/route.ts");
 const { allowFileRoot } = await jiti.import("../../../lib/allowed-roots.ts");
 allowFileRoot(root);
 
-// A route exports only its handlers, so the extensions it maps come from its source.
-const source = fs.readFileSync(new URL("./[...path]/route.ts", import.meta.url), "utf8");
+// Read the shared map so every mapped extension passes through the route.
+const source = fs.readFileSync(new URL("../../../lib/file-language.ts", import.meta.url), "utf8");
 const sourceFile = ts.createSourceFile("route.ts", source, ts.ScriptTarget.Latest, true);
 let extensionMap;
 sourceFile.forEachChild(function visit(node) {
@@ -30,10 +30,10 @@ sourceFile.forEachChild(function visit(node) {
   else node.forEachChild(visit);
 });
 assert.ok(extensionMap && ts.isObjectLiteralExpression(extensionMap), "EXT_TO_LANGUAGE not found");
-// PDF and Word files are streamed by ?type=read, never shown as source.
+// Images and documents are streamed by ?type=read, never shown as source.
 const textExtensions = extensionMap.properties
   .map((property) => property.name.text)
-  .filter((ext) => ext !== "pdf" && ext !== "docx");
+  .filter((ext) => !["pdf", "docx", "svg"].includes(ext));
 assert.ok(textExtensions.includes("ts") && textExtensions.every(Boolean), "EXT_TO_LANGUAGE keys not read");
 
 async function languageOf(name) {
@@ -75,6 +75,19 @@ test("JSX gets its tags colored and an ambiguous extension stays plain", async (
   }
   assert.equal(await languageOf("analysis.R"), "r");
   assert.equal(await languageOf("plot.m"), "text");
+});
+
+test("container recipes and Podman Desktop config formats have grammars", async () => {
+  const names = {
+    Containerfile: "dockerfile", "Containerfile.dev": "dockerfile",
+    "hello.containerfile": "dockerfile", Dockerfile: "dockerfile", "Dockerfile.dev": "dockerfile",
+    "hello.dockerfile": "dockerfile", "settings.jsonc": "json5", "main.fmf": "yaml",
+    "package.nuspec": "xml", "Info.plist": "xml",
+    "template.mustache": "mustache", "installer.nsh": "nsis", "app.desktop": "ini",
+  };
+  for (const [name, expected] of Object.entries(names)) {
+    assert.equal(await languageOf(name), expected, name);
+  }
 });
 
 test("a binary file without a preview answers binary, never its bytes as text (#1401)", async () => {

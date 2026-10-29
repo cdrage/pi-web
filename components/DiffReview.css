@@ -91,6 +91,18 @@
 .diff-review-added .diff-review-prefix { color: #4ade80; }
 .diff-review-removed .diff-review-prefix { color: #f87171; }
 .diff-review-row code { white-space: pre; padding-right: 12px; }
+.diff-review-edit-gutter { flex: 0 0 24px; background: var(--bg-panel); }
+.diff-review button.diff-review-edit-line { display: flex; align-items: center; justify-content: center; width: 24px; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; color: var(--text-muted); opacity: 0; }
+.diff-review-row:hover .diff-review-edit-line,
+.diff-review-row:focus-within .diff-review-edit-line { opacity: 1; }
+.diff-review.is-wrapped .diff-review-edit-line { height: auto; min-height: 1.6em; font-size: inherit; }
+
+/* Keep one gutter per source line while long tokens wrap inside the code column. */
+.diff-review.is-wrapped .diff-review-row,
+.diff-review.is-wrapped .diff-review-hunk { width: 100%; }
+.diff-review.is-wrapped .diff-review-row code { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-review.is-wrapped .diff-review-hunk { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-review.is-wrapped .diff-review-gutter { display: flex; align-items: flex-start; justify-content: flex-end; }
 
 .diff-review-card,
 .diff-review-editor {
@@ -126,6 +138,7 @@
   .diff-review button.diff-review-search-toggle { min-width: 36px; }
   .diff-review-row > .diff-review-gutter { min-height: 28px; }
   .diff-review-row { min-height: 28px; align-items: stretch; }
+  .diff-review button.diff-review-edit-line { min-height: 28px; opacity: 1; }
   .diff-review-row code,
   .diff-review-prefix { line-height: 28px; }
 }

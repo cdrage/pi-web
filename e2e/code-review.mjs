@@ -7,17 +7,18 @@ import { chromium, webkit } from "playwright";
 import { showSidebarFiles } from "./sidebar.mjs";
 
 const HTTP_OK = 200;
+const HTTP_NOT_FOUND = 404;
 const HTTP_CONFLICT = 409;
 const HTTP_UNAVAILABLE = 503;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MOBILE_MAX_WIDTH = 640;
 const MIN_REVIEW_WIDTH = 300;
 const BROWSER = { all: "all", chromium: "chromium", webkit: "webkit" };
-const TEST_CASE = { all: "all", freshCwd: "fresh-cwd", send: "send", edit: "edit" };
+const TEST_CASE = { all: "all", freshCwd: "fresh-cwd", send: "send", edit: "edit", syntax: "syntax" };
 const selectedBrowser = process.env.PI_WEB_E2E_BROWSER ?? BROWSER.all;
 const selectedCase = process.env.PI_WEB_E2E_CASE ?? TEST_CASE.all;
 assert.ok(Object.values(BROWSER).includes(selectedBrowser), "PI_WEB_E2E_BROWSER must be all, chromium, or webkit");
-assert.ok(Object.values(TEST_CASE).includes(selectedCase), "PI_WEB_E2E_CASE must be all, fresh-cwd, send, or edit");
+assert.ok(Object.values(TEST_CASE).includes(selectedCase), "PI_WEB_E2E_CASE must be all, fresh-cwd, send, edit, or syntax");
 const base = process.env.E2E_BASE_URL ?? process.env.PI_WEB_E2E_BASE_URL ?? "http://127.0.0.1:30141";
 const artifacts = process.env.PI_WEB_E2E_ARTIFACTS ?? fileURLToPath(new URL("../test-results/code-review/", import.meta.url));
 const cwd = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -220,7 +221,7 @@ async function mockApi(context, state) {
       const patch = state.editPatch ?? (state.changed ? ALPHA_PATCH.replace("Math.max(total, 0)", "Math.max(total, 1)") : ALPHA_PATCH);
       const clean = alpha ? state.clean : state.cleanBeta;
       const diff = clean ? { supported: false }
-        : { supported: true, status: "modified", patch: alpha ? patch : BETA_PATCH };
+        : { supported: true, status: state.syntaxDeleted ? "deleted" : "modified", patch: alpha ? patch : state.syntaxPatch ?? BETA_PATCH };
       if (state.pauseExport) {
         state.exportWaiters.push(() => json(diff));
         state.onExportStarted?.();
@@ -233,6 +234,10 @@ async function mockApi(context, state) {
       if (url.searchParams.get("type") === "list") {
         const names = state.syntaxFile ? [ALPHA, BETA, state.syntaxFile] : [ALPHA, BETA];
         await json({ entries: names.map((name) => ({ name, isDir: false, size: 200, modified: TIMESTAMP })) });
+        return;
+      }
+      if (state.syntaxDeleted) {
+        await json({ error: "File not found" }, HTTP_NOT_FOUND);
         return;
       }
       await json({ content: state.editContent, language: state.syntaxLanguage ?? "typescript", size: 34, nextOffset: 0, truncated: false });
@@ -281,7 +286,7 @@ function gutter(page, side, line) {
     .and(review(page).locator(`[data-review-side="${side}"]`));
 }
 
-async function openFile(page, name, clean = false) {
+async function openFile(page, name, clean = false, signature) {
   const hide = page.locator("#file-panel").getByRole("button", { name: "Hide file panel", exact: true });
   if (page.viewportSize().width <= MOBILE_MAX_WIDTH && await hide.count()) {
     await hide.press("Enter");
@@ -299,17 +304,16 @@ async function openFile(page, name, clean = false) {
   }
   await page.locator("#session-sidebar-panel-files").getByTitle(join(cwd, name), { exact: true }).first().click();
   await review(page).waitFor();
-  await fileReady(page, name, clean);
+  await fileReady(page, name, clean, signature);
   await page.locator("#file-panel").evaluate((element) => Promise.all(
     element.getAnimations().map((animation) => animation.finished.catch(() => {}))));
 }
 
-async function fileReady(page, name, clean = false) {
+async function fileReady(page, name, clean = false, signature = name === ALPHA ? "export function count" : "export function title") {
   if (clean) {
     await review(page).getByText("No current changes.", { exact: true }).waitFor();
     return;
   }
-  const signature = name === ALPHA ? "export function count" : "export function title";
   await review(page).locator("code").filter({ hasText: signature }).first().waitFor();
 }
 
@@ -1039,6 +1043,108 @@ async function checkSendReview(page, state, label) {
   console.log(`PASS: ${label}: immediate send, draft preservation, destination guard, and empty export guard`);
 }
 
+async function checkReviewWrap(page, state, label) {
+  const longLine = `export const label = "${"long/path/".repeat(80)}";`;
+  state.editPatch = ALPHA_PATCH.replace('export const label = "review";', longLine);
+  await page.goto(`${base}/?session=${SESSION_ID}`);
+  await openFile(page, ALPHA);
+  const panel = page.locator("#file-panel");
+  const enable = panel.getByRole("button", { name: "Enable word wrap", exact: true });
+  assert.equal(await enable.count(), 1, "Diff must expose the word wrap button");
+  await enable.click();
+  const line = review(page).locator("code").filter({ hasText: longLine });
+  await page.waitForFunction(() => {
+    const code = document.querySelector(".diff-review-code");
+    return code && code.scrollWidth <= code.clientWidth + 1;
+  });
+  const heights = await line.evaluate((element) => ({
+    code: element.getBoundingClientRect().height,
+    gutter: element.parentElement.querySelector(".diff-review-gutter").getBoundingClientRect().height,
+    single: parseFloat(getComputedStyle(element).lineHeight),
+  }));
+  assert.ok(heights.code > heights.single * 2, "Long code must wrap across rows");
+  assert.equal(heights.code, heights.gutter, "The gutter spans the wrapped line");
+  assert.equal(await line.textContent(), longLine, "Wrap preserves the exact code");
+  await panel.getByRole("button", { name: "Source", exact: true }).click();
+  const disable = panel.getByRole("button", { name: "Disable word wrap", exact: true });
+  assert.equal(await disable.getAttribute("aria-pressed"), "true", "Source shares the wrap preference");
+  await panel.getByRole("button", { name: "Diff", exact: true }).click();
+  await gutter(page, "new", 6).click();
+  await review(page).getByRole("textbox", { name: "Review comment", exact: true }).fill("Wrapped line comment");
+  await page.screenshot({ path: join(artifacts, `${label}-review-wrap.png`), fullPage: true });
+  await button(page, "Cancel").click();
+  await disable.click();
+  assert.equal(await line.evaluate((element) => getComputedStyle(element).whiteSpace), "pre");
+  state.editPatch = null;
+}
+
+async function checkReviewSyntax(page, state, label) {
+  await page.goto(`${base}/?session=${SESSION_ID}`);
+  await openFile(page, ALPHA);
+  for (const colorScheme of ["light", "dark"]) {
+    await page.emulateMedia({ colorScheme });
+    await page.waitForFunction((dark) => document.documentElement.classList.contains("dark") === dark, colorScheme === "dark");
+    for (const type of ["context", "removed", "added"]) {
+      const code = review(page).locator(`.diff-review-${type} code`).first();
+      await code.locator(".token.keyword").first().waitFor();
+      const colors = await code.evaluate((element) => ({
+        plain: getComputedStyle(element).color,
+        keyword: getComputedStyle(element.querySelector(".token.keyword")).color,
+        background: getComputedStyle(element.parentElement).backgroundColor,
+      }));
+      assert.notEqual(colors.keyword, colors.plain, `${type} keywords must have syntax colors in ${colorScheme}`);
+      if (type !== "context") {
+        assert.notEqual(colors.background, "rgba(0, 0, 0, 0)", `${type} retains its diff background`);
+      }
+    }
+    await page.screenshot({ path: join(artifacts, `${label}-review-syntax-${colorScheme}.png`), fullPage: true });
+  }
+  await gutter(page, "new", 2).click();
+  await review(page).getByRole("textbox", { name: "Review comment", exact: true }).waitFor();
+  await button(page, "Cancel").click();
+  const panel = page.locator("#file-panel");
+  const editLine = review(page).getByRole("button", { name: "Edit file at line 21", exact: true });
+  assert.equal(await editLine.count(), 1, "A current diff line must offer an edit action");
+  assert.equal(await review(page).locator('.diff-review-removed [aria-label^="Edit file"]').count(), 0,
+    "Deleted lines have no current source location");
+  await editLine.click();
+  const editor = panel.getByRole("textbox", { name: "File content", exact: true });
+  await editor.waitFor();
+  assert.equal(await panel.getByRole("button", { name: "Source", exact: true }).getAttribute("aria-pressed"), "true");
+  assert.equal(await editor.evaluate((element) => document.activeElement === element), true);
+  assert.equal(await editor.evaluate((element) => element.selectionStart), EDIT_CONTENT.replaceAll("\r\n", "\n").indexOf("  return value.toFixed"));
+  await panel.getByRole("button", { name: "Close editor", exact: true }).click();
+  assert.equal(await panel.getByRole("button", { name: "Source", exact: true }).getAttribute("aria-pressed"), "true",
+    "Close editor stays in Source after a diff jump");
+  await checkReviewWrap(page, state, label);
+  const samples = [
+    { name: "Review.svelte", text: '<script lang="ts">\nconst count: number = 1;\n</script>\n{#if count}<p>{count}</p>{/if}', token: ".token.builtin", word: "number" },
+    { name: "Containerfile", text: 'FROM alpine:latest\nRUN echo "hello"', token: ".token.keyword", word: "FROM" },
+    { name: "build.containerfile", text: 'FROM alpine:latest\nCMD ["echo", "hello"]', token: ".token.keyword", word: "FROM", deleted: true },
+    { name: "workflow.yaml", text: 'name: review\non: [push]', token: ".token.key", word: "name" },
+    { name: "Review.tsx", text: 'export const view = <p title="hello">review</p>;', token: ".token.tag", word: "p" },
+    { name: "settings.jsonc", text: '// Configuration\n{ "enabled": true }', token: ".token.comment", word: "Configuration" },
+    { name: "setup.ps1", text: 'Write-Host "hello"', token: ".token.function", word: "Write-Host" },
+  ];
+  for (const sample of samples) {
+    state.fileNames = [ALPHA, sample.name];
+    state.syntaxDeleted = sample.deleted;
+    const lines = sample.text.split("\n");
+    const prefix = sample.deleted ? "-" : "+";
+    const range = sample.deleted ? `-1,${lines.length} +0,0` : `-0,0 +1,${lines.length}`;
+    state.syntaxPatch = `@@ ${range} @@\n${lines.map((line) => prefix + line).join("\n")}\n`;
+    await page.goto(`${base}/?session=${SESSION_ID}`);
+    await openFile(page, sample.name, false, lines[0]);
+    await review(page).locator(`code ${sample.token}`).filter({ hasText: sample.word }).first().waitFor();
+    assert.deepEqual(await review(page).locator("code").allTextContents(), lines, `${sample.name} preserves its code`);
+  }
+  delete state.syntaxPatch;
+  delete state.syntaxDeleted;
+  state.fileNames = [ALPHA, BETA];
+  await page.emulateMedia({ colorScheme: "light" });
+  console.log(`PASS: ${label}: review syntax, themes, deleted files, diff backgrounds, and comment selection`);
+}
+
 async function runCase(browser, options, label) {
   const context = await browser.newContext({ ...options, locale: "en-US", serviceWorkers: "block" });
   await context.addInitScript(() => {
@@ -1064,6 +1170,13 @@ async function runCase(browser, options, label) {
   page.on("pageerror", (error) => errors.push(error.message));
 
   try {
+    if (selectedCase === TEST_CASE.all || selectedCase === TEST_CASE.syntax) {
+      await checkReviewSyntax(page, state, label);
+    }
+    if (selectedCase === TEST_CASE.syntax) {
+      assert.deepEqual(errors, [], "The fixture must produce no browser errors");
+      return;
+    }
     if (selectedCase === TEST_CASE.all || selectedCase === TEST_CASE.edit) {
       await checkFileEditing(page, state, label);
       await checkSourceSyntax(page, state, label);
@@ -1159,7 +1272,7 @@ assert.equal(ready?.status ?? HTTP_UNAVAILABLE, HTTP_OK, `Start the Pi Web dev s
 if (selectedBrowser !== BROWSER.webkit) {
   const chrome = await chromium.launch();
   try {
-    if (selectedCase !== TEST_CASE.send && selectedCase !== TEST_CASE.edit) {
+    if (selectedCase === TEST_CASE.all || selectedCase === TEST_CASE.freshCwd) {
       await runFreshCwd(chrome);
     }
     if (selectedCase !== TEST_CASE.freshCwd) {
@@ -1184,7 +1297,7 @@ if (selectedBrowser !== BROWSER.chromium) {
 }
 if (safari) {
   try {
-    if (selectedCase !== TEST_CASE.send && selectedCase !== TEST_CASE.edit) {
+    if (selectedCase === TEST_CASE.all || selectedCase === TEST_CASE.freshCwd) {
       await runFreshCwd(safari);
     }
     if (selectedCase !== TEST_CASE.freshCwd) {

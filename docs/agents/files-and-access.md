@@ -35,11 +35,14 @@
 - Files dropped onto the explorer take the Upload button's path (`upload-check`, replace or skip, summary, highlights), aimed at a folder: a folder row takes the drop into that folder (rows stop `dragover` and `drop`, so the deepest one under the pointer wins); anywhere else, file rows included, it lands in the cwd. The hint naming the target is pinned to the bottom of the files box with `pointer-events: none`: above the tree it pushed every row down as a drag came in, moving the target under a still pointer. Folders are left out with the chat's notice.
 
 ## Source view languages
-- `/api/files ?type=read` names a file's language by its extension (`EXT_TO_LANGUAGE` in the route). `FileViewer` hands it to Prism as is, and a name Prism lacks renders plain with no error, so every value but `text`, `pdf` and `word` must be a language `refractor/all` registers (`app/api/files/language-route.test.mjs`). `html` and `markdown` also turn on Preview and make it the default, so a template that is not a page (`.vue`, `.svelte`, `.astro`) takes `markup`. `.m` stays `text`: Objective-C and MATLAB both use it widely, and either grammar miscolors the other (MATLAB's `%` comments come out as operators); `.mm` is Objective-C++ only. `.conf` stays `text` as well: nginx, Apache and tmux configs are not INI (`.cfg` and `.ini` are). Past 1,000 loaded lines the source view is not highlighted at all (`SOURCE_HIGHLIGHT_MAX_LINES`, #469).
+- `/api/files ?type=read` names a file's language by its extension (`EXT_TO_LANGUAGE` in `lib/file-language.ts`). `FileViewer` hands it to Prism as is, and a name Prism lacks renders plain with no error, so every value but `text`, `pdf` and `word` must be a language `refractor/all` registers (`app/api/files/language-route.test.mjs`). `html` and `markdown` also turn on Preview and make it the default, so a template that is not a page (`.vue`, `.svelte`, `.astro`) takes `markup`. `.m` stays `text`: Objective-C and MATLAB both use it widely, and either grammar miscolors the other (MATLAB's `%` comments come out as operators); `.mm` is Objective-C++ only. `.conf` stays `text` as well: nginx, Apache and tmux configs are not INI (`.cfg` and `.ini` are). Past 1,000 loaded lines the source view is not highlighted at all (`SOURCE_HIGHLIGHT_MAX_LINES`, #469).
 - A file with no media or document preview whose first 8000 bytes hold a NUL (git's test; a UTF-16 byte order mark exempts it) answers `binary: true` with no content (`readTextPreviewChunk()`, first chunk only), and the viewer shows a notice with a Download button instead of decoded bytes (#1401). Invalid UTF-8 alone stays text, so Latin-1 files and unfamiliar extensions read as before. Opening such a file never downloads it by itself.
 - `FileEditor` keeps a native textarea above a Prism layer. Both layers share font metrics and one scroll area.
   `FileViewer` passes the API language. The editor uses `lib/svelte-syntax.ts` for Svelte scripts and template expressions.
   The lazy loader registers that grammar after `refractor/all`. Drafts above 1,000 lines or 100,000 characters use plain text.
+- `lib/file-language.ts` holds the shared filename map for Source and Diff. Deleted files use their path without a file read.
+  Containerfile and Dockerfile names, dotted suffixes, and extensions use the Docker grammar.
+  JSONC, FMF, SVG, plist, nuspec, Mustache, NSIS, and desktop files also have grammars. SVG previews remain images.
 
 ## CSV/TSV files open as a table
 - `.csv` / `.tsv` (matched by extension, `isDelimitedTablePath()`) open in `FileViewer`'s Preview mode as `components/DelimitedTable.tsx`, the way markdown and HTML open rendered; Source stays one click away and a restored choice wins. No server change: `/api/files ?type=read` still answers `language: "text"` for them.
@@ -70,6 +73,13 @@
 ## Code review drafts
 
 - The Diff tab uses `components/DiffReview.tsx`. It supports comments on lines, ranges, and files.
+- Source and Diff share the tab's word wrap preference and toolbar button. Wrapped diff rows keep one gutter per source line.
+- The pencil beside a current line opens Source in edit mode at that line. Deleted lines have no edit action.
+  Line numbers still select comments. The action uses the existing file editor and its save conflict checks.
+- `lib/review-syntax.ts` tokenizes each hunk's old and new source separately, without diff prefixes. Context uses the new side.
+  Token classes survive line breaks. Each hunk resets syntax state because omitted source is unknown.
+  The review uses the shared lazy Prism loader, Svelte grammar, and light or dark syntax palette. Diff backgrounds remain visible.
+  Token elements stay cached across selections and comment edits. Unknown languages, grammar errors, and hunks above 100,000 characters use plain text.
 - Previous and Next use the changed-file order from `useCodeReview`. Each button stops at its list boundary.
 - The toolbar shows a file-comment action and search. Saved comments reveal the comment count and chat export.
 - A line number click opens the comment box and moves focus there. Shift-click extends the range and preserves its text. Copy and clear stay in the comments panel.

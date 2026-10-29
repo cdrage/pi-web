@@ -1645,7 +1645,7 @@ function TextFileViewer({
               </button>
             )}
             </>}
-            {effectiveDisplayMode === "source" && !isBinary && (
+            {(effectiveDisplayMode === "source" || effectiveDisplayMode === "diff") && !isBinary && (
               <>
                 <button
                   type="button"
@@ -1737,9 +1737,14 @@ function TextFileViewer({
           <DiffReview
             patch={gitDiff?.patch ?? ""}
             filePath={filePath}
+            wrapLines={wrapLines}
             review={review}
             onAddReview={onAddReview}
             onOpenDiff={onOpenDiff}
+            onEditLine={isDeletedDiff || isBinary ? undefined : (line) => {
+              updateDisplayMode("source");
+              void editFile(line);
+            }}
           />
         ) : isHtml && effectiveDisplayMode === "preview" && data?.truncated && !htmlFull?.text ? (
           <div style={{ padding: 24, color: "var(--text-dim)", fontSize: 12 }}>

@@ -19,6 +19,7 @@ import {
   getVideoMime,
 } from "@/lib/file-types";
 import { resolveDirentIsDirectory } from "@/lib/file-dirent";
+import { getLanguage } from "@/lib/file-language";
 import { getFileTreeHiddenReasons } from "@/lib/file-tree-visibility";
 import { isFilePathReferencedBySession } from "@/lib/session-file-references";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
@@ -75,42 +76,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       : error instanceof SyntaxError ? HTTP_BAD_REQUEST : HTTP_SERVER_ERROR;
     return NextResponse.json({ error: error instanceof Error ? error.message : "Cannot save the file" }, { status });
   }
-}
-
-// The source view highlights every language here but text, pdf and word with
-// the Prism grammar of that name (refractor/all); a name it lacks renders
-// plain. "html" and "markdown" also turn on FileViewer's Preview, so templates
-// that are not pages take "markup". `.m` stays plain: Objective-C and MATLAB
-// both use it.
-const EXT_TO_LANGUAGE: Record<string, string> = {
-  ts: "typescript", tsx: "tsx", mts: "typescript", cts: "typescript",
-  js: "javascript", jsx: "jsx", mjs: "javascript", cjs: "javascript",
-  py: "python", rb: "ruby", php: "php", lua: "lua", pl: "perl", r: "r",
-  go: "go", rs: "rust", java: "java", kt: "kotlin", kts: "kotlin", swift: "swift",
-  scala: "scala", groovy: "groovy", gradle: "groovy", dart: "dart", zig: "zig",
-  c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp", mm: "objectivec",
-  ex: "elixir", exs: "elixir", hs: "haskell", ml: "ocaml", clj: "clojure", nix: "nix",
-  html: "html", htm: "html", vue: "markup", svelte: "markup", astro: "markup",
-  css: "css", scss: "scss", less: "less",
-  json: "json", jsonl: "json", yaml: "yaml", yml: "yaml",
-  toml: "toml", ini: "ini", cfg: "ini", properties: "properties",
-  xml: "xml", md: "markdown", mdx: "markdown", tex: "latex",
-  sh: "bash", bash: "bash", zsh: "bash", fish: "bash",
-  ps1: "powershell", psm1: "powershell", bat: "batch", cmd: "batch",
-  sql: "sql", graphql: "graphql", gql: "graphql", proto: "protobuf",
-  dockerfile: "dockerfile", tf: "hcl", hcl: "hcl", diff: "diff", patch: "diff",
-  env: "bash", gitignore: "bash", txt: "text",
-  pdf: "pdf", docx: "word",
-};
-
-function getLanguage(filePath: string): string {
-  const base = path.basename(filePath).toLowerCase();
-  // Special full-name matches
-  if (base === "dockerfile" || base.startsWith("dockerfile.")) return "dockerfile";
-  if (base === ".env" || base.startsWith(".env.")) return "bash";
-  if (base === "makefile" || base === "gnumakefile") return "makefile";
-  const ext = base.split(".").pop() ?? "";
-  return EXT_TO_LANGUAGE[ext] ?? "text";
 }
 
 function parseFileRequestType(value: string): FileRequestType | null {
