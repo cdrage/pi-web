@@ -18,6 +18,7 @@ import { resolveExistingPath } from "./paths";
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 10_000;
 const GIT_STATUS_MAX_BUFFER = 8 * 1024 * 1024;
+const GIT_DIFF_MAX_BUFFER = 1024 * 1024;
 
 async function git(cwd: string, args: string[], maxBuffer = GIT_STATUS_MAX_BUFFER): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
@@ -192,7 +193,7 @@ async function createTrackedFilePatch(
       "HEAD",
       "--",
       ...paths,
-    ], TEXT_PREVIEW_MAX_BYTES * 4);
+    ], GIT_DIFF_MAX_BUFFER);
   } catch {
     return null;
   }
@@ -245,23 +246,28 @@ export async function getGitFileDiff(cwd: string, filePath: string): Promise<Git
   } catch {
     return { supported: false };
   }
-  if (!stat.isFile() || stat.size > TEXT_PREVIEW_MAX_BYTES) return { supported: false };
+  if (!stat.isFile()) {
+    return { supported: false };
+  }
 
-  const currentBuffer = fs.readFileSync(resolvedFilePath);
-  if (hasNullByte(currentBuffer)) return { supported: false };
-  const newContent = currentBuffer.toString("utf8");
-
-  let patch: string;
-  if (status === "untracked") {
-    patch = createAddedFilePatch(relativePath, newContent);
-  } else {
-    const trackedPatch = await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
-    if (trackedPatch === null) {
-      if (status !== "added") return { supported: false };
-      patch = createAddedFilePatch(relativePath, newContent);
-    } else {
-      patch = trackedPatch;
+  // A large tracked file can have a small diff. Bound Git's output, not the source.
+  let patch = status === "untracked"
+    ? null
+    : await createTrackedFilePatch(repositoryRoot, relativePath, entry.originalPath, gitConfig);
+  if (patch === null) {
+    if (status !== "untracked" && status !== "added") {
+      return { supported: false };
     }
+    if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
+      return { supported: false };
+    }
+
+    // New files need a synthetic patch, so their complete source still has a size limit.
+    const currentBuffer = fs.readFileSync(resolvedFilePath);
+    if (hasNullByte(currentBuffer)) {
+      return { supported: false };
+    }
+    patch = createAddedFilePatch(relativePath, currentBuffer.toString("utf8"));
   }
 
   if (!patch.includes("\n@@ ")) return { supported: false };

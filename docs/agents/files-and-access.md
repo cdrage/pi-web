@@ -72,6 +72,8 @@
 
 ## Code review drafts
 
+- Tracked text diffs use Git's patch output limit of 1 MiB, independent of the source preview limit.
+  A small deletion in a file above 256 KiB still appears. Synthetic patches for new files retain the source size limit.
 - The Diff tab uses `components/DiffReview.tsx`. It supports comments on lines, ranges, and files.
 - Source and Diff share the tab's word wrap preference and toolbar button. Wrapped diff rows keep one gutter per source line.
 - The pencil beside a current line opens Source in edit mode at that line. Deleted lines have no edit action.

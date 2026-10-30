@@ -28,6 +28,10 @@ const jiti = createJiti(import.meta.url, {
 const { GET } = await jiti.import("./route.ts");
 const { allowFileRoot } = await jiti.import("../../../../lib/file-access.ts");
 const { NextRequest } = await jiti.import("next/server");
+const { TEXT_PREVIEW_MAX_BYTES } = await jiti.import("../../../../lib/file-types.ts");
+const { parseReviewPatch } = await jiti.import("../../../../lib/code-review.ts");
+
+const HTTP_OK = 200;
 
 function git(cwd, ...args) {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
@@ -103,6 +107,56 @@ test("returns ordinary modified and untracked text diffs", async () => {
     assert.equal(result.supported, true);
     assert.equal(result.status, status);
     assert.ok(result.patch.includes(content));
+  }
+});
+
+test("returns deletion-only diffs above the source preview limit", async (t) => {
+  const root = fixture();
+  const filePath = path.join(root, "large.ts");
+  const context = "// Keep this line.\n";
+  const content = context.repeat(Math.ceil(TEXT_PREVIEW_MAX_BYTES / context.length) + 1);
+  fs.writeFileSync(filePath, `// Remove this line.\n${content}`);
+  git(root, "add", ".");
+  git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "fixture");
+  fs.writeFileSync(filePath, content);
+
+  for (const staged of [false, true]) {
+    await t.test(staged ? "staged" : "unstaged", async () => {
+      if (staged) {
+        git(root, "add", ".");
+      }
+
+      const response = await request(root, filePath);
+      assert.equal(response.status, HTTP_OK);
+      const result = await response.json();
+      assert.equal(result.supported, true);
+      assert.equal(result.status, "modified");
+
+      // The review must receive the removed source and its original line number.
+      const lines = parseReviewPatch(result.patch);
+      const removed = lines.filter((line) => line.type === "removed");
+      assert.deepEqual(removed.map(({ text, oldLine, newLine }) => ({ text, oldLine, newLine })), [
+        { text: "// Remove this line.", oldLine: 1, newLine: null },
+      ]);
+      assert.equal(lines.some((line) => line.type === "added"), false);
+    });
+  }
+});
+
+test("keeps binary diffs and oversized untracked files unsupported", async () => {
+  const root = fixture();
+  const binary = path.join(root, "binary.dat");
+  fs.writeFileSync(binary, "original\0content\n");
+  git(root, "add", ".");
+  git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "fixture");
+  fs.writeFileSync(binary, "changed\0content\n");
+  const untracked = path.join(root, "large.txt");
+  fs.writeFileSync(untracked, "x".repeat(TEXT_PREVIEW_MAX_BYTES + 1));
+
+  for (const filePath of [binary, untracked]) {
+    const response = await request(root, filePath);
+    assert.equal(response.status, HTTP_OK);
+    assert.deepEqual(await response.json(), { supported: false });
   }
 });
 
